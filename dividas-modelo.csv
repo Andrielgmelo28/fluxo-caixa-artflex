@@ -1,0 +1,5 @@
+operacao;empresa;banco;produto;tipo;saldo;taxa_am;capital_mes;dia;fim;obs
+000000001;Artflex;BB;Capital de Giro;sac;100000.00;1.500;5000.00;15;2028-12-15;exemplo - amortiza capital fixo mais juros sobre o saldo
+000000002;Artflex;BB;Conta Garantida;rotativo;50000.00;2.000;0;3;;exemplo - rotativo, so juros, nao amortiza
+000000003;AMM;BNB;FNE-MPE-Industria;sac;80000.00;0.450;4000.00;20;2027-06-20;exemplo
+000000004;Artflex;FIDC Exemplo;Antecipacao de duplicatas;antecipacao;40000.00;2.000;0;;2027-03-31;exemplo - titulos cedidos com coobrigacao: nao gera parcela, mas e risco de recompra

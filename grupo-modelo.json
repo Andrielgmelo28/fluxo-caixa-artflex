@@ -1,0 +1,23 @@
+{
+ "_leia": "Copie para grupo.json e preencha. grupo.json e ignorado pelo git.",
+ "empresas": {
+  "NOME NA PLANILHA": {
+   "nome": "Nome de exibição",
+   "grupo": "Indústria",
+   "regime": "regime tributário",
+   "cnpj": "identificação"
+  },
+  "OUTRA": {
+   "nome": "Outra Empresa",
+   "grupo": "Varejo",
+   "regime": "regime tributário",
+   "cnpj": "identificação"
+  }
+ },
+ "contas": {
+  "NOME DA CONTA NA PLANILHA": "Nome de exibição da empresa dona"
+ },
+ "contas_encerradas": [
+  "CONTA QUE NAO EXISTE MAIS"
+ ]
+}

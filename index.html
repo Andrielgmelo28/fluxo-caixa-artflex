@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>ARTFLEX · Fluxo de Caixa</title>
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f9f9f7; --surface:#fcfcfb; --surface-2:#f3f2ef;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+
+  /* Marca — amostrado da logomarca. O amarelo puro só aparece como acento de
+     interface (botão, chip ativo, régua do cabeçalho), sempre com texto preto,
+     como no logotipo. */
+  --brand:#fab913; --brand-ink:#0b0b0b; --brand-grey:#888888;
+
+  /* Séries. O slot 1 é o matiz da marca (82,5°) num passo mais escuro: o amarelo
+     puro tem L=0,82 e reprova na banda de luminosidade exigida para marca de dado.
+     Ordem validada com scripts/validate_palette.js nos dois modos — reordenar ou
+     acrescentar um 7º slot exige validar de novo. */
+  --s1:#e2a600; --s2:#2a78d6; --s3:#eb6834; --s4:#1baf7a; --s5:#4a3aa7; --s6:#e87ba4;
+  --s7:#008300; --s8:#00707d;
+
+  /* Estado. O amarelo saiu daqui ao virar cor de marca: "observação" agora é um
+     selo neutro, senão um aviso ficaria idêntico a um acento de interface. */
+  --good:#0ca30c; --serious:#ec835a; --critical:#d03b3b;
+  --good-text:#006300;
+  --shadow:0 1px 2px rgba(11,11,11,.05), 0 6px 20px -12px rgba(11,11,11,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+    --ink:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --s1:#ba8905; --s2:#3987e5; --s3:#d95926; --s4:#199e70; --s5:#9085e9; --s6:#d55181;
+    --s7:#008300; --s8:#00707d;
+    --good-text:#0ca30c;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px -12px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+  --s1:#ba8905; --s2:#3987e5; --s3:#d95926; --s4:#199e70; --s5:#9085e9; --s6:#d55181;
+  --s7:#008300; --s8:#00707d;
+  --good-text:#0ca30c;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px -12px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--plane); color:var(--ink);
+  font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+a{color:var(--s1)}
+.wrap{max-width:1220px;margin:0 auto;padding:0 20px 72px}
+
+/* ---------------------------------------------------------------- gate */
+#gate{position:fixed;inset:0;background:var(--plane);display:grid;place-items:center;padding:24px;z-index:50}
+#gate .box{width:100%;max-width:390px;background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:28px;box-shadow:var(--shadow)}
+#gate h1{font-size:21px;margin:10px 0 4px}
+#gate p{color:var(--ink-2);font-size:13.5px;margin:0 0 20px}
+input,select,button{font:inherit;color:inherit}
+.field{width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:9px;
+  background:var(--surface-2);color:var(--ink)}
+.field:focus{outline:2px solid var(--brand);outline-offset:1px}
+.btn{padding:11px 16px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);
+  cursor:pointer;font-size:13.5px;transition:background .12s}
+.btn:hover{background:var(--grid)}
+/* amarelo com texto preto, como no logotipo — o amarelo da marca não sustenta
+   texto branco em contraste nenhum */
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn:focus-visible,.chip:focus-visible,.themebtn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* Logotipo: duas versões, trocadas pelas mesmas regras de tema das cores, para
+   acompanhar tanto a preferência do sistema quanto o botão de tema. */
+.logo-light{display:block}
+.logo-dark{display:none}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])) .logo-light{display:none}
+  :root:where(:not([data-theme="light"])) .logo-dark{display:block}
+}
+:root[data-theme="dark"] .logo-light{display:none}
+:root[data-theme="dark"] .logo-dark{display:block}
+/* sem display aqui: essa regra é mais específica e apagaria a troca acima */
+#gate .logo img{width:184px;height:auto;margin:0 auto 18px}
+#gate .row{display:flex;gap:9px;margin-top:13px}
+#erro{color:var(--critical);font-size:13px;margin-top:11px;min-height:18px}
+
+/* -------------------------------------------------------------- header */
+header{border-bottom:3px solid var(--brand);background:var(--surface);margin-bottom:26px}
+header .wrap{padding-top:20px;padding-bottom:20px;display:flex;flex-wrap:wrap;gap:16px;
+  align-items:flex-end;justify-content:space-between}
+.hbrand{display:flex;align-items:center;gap:16px;min-width:0}
+.hbrand img{width:118px;height:auto;flex:none}
+.brand{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-muted);margin-top:4px}
+header h1{font-size:23px}
+.meta{font-size:12.5px;color:var(--ink-muted);text-align:right;line-height:1.7}
+.themebtn{border:1px solid var(--border);background:var(--surface-2);border-radius:8px;
+  padding:6px 11px;cursor:pointer;font-size:12.5px;color:var(--ink-2)}
+
+/* ------------------------------------------------------------- filtros */
+.filtros{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:16px 18px;margin-bottom:22px;box-shadow:var(--shadow)}
+.frow{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:flex-end}
+.fgrp{display:flex;flex-direction:column;gap:6px}
+.flab{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);font-weight:500}
+.fgrp .field{padding:8px 11px;font-size:13.5px}
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2);
+  cursor:pointer;font-size:12.5px;color:var(--ink-2);transition:.12s;white-space:nowrap}
+.chip:hover{background:var(--grid)}
+.chip[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
+/* .fac = chip de faceta (empresa/natureza): marcado por padrão, riscado quando
+   excluído — o traço evita depender só de opacidade para dizer o estado. */
+.chip.fac{display:inline-flex;align-items:center;gap:7px}
+.chip.fac[aria-pressed="true"]{background:var(--surface-2);border-color:var(--ink-muted);color:var(--ink);font-weight:500}
+.chip.fac[aria-pressed="false"]{opacity:.5;text-decoration:line-through}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.sep{height:1px;background:var(--border);margin:14px 0}
+
+/* ---------------------------------------------------------------- kpis */
+.kpis{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(3,minmax(0,1fr));gap:14px;margin-bottom:22px}
+@media(max-width:900px){.kpis{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+@media(max-width:520px){.kpis{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;
+  box-shadow:var(--shadow)}
+.tile .lab{font-size:12.5px;color:var(--ink-2);margin-bottom:7px}
+.tile .val{font-size:25px;font-weight:600;letter-spacing:-.02em}
+.tile .sub{font-size:12px;color:var(--ink-muted);margin-top:5px}
+.hero .lab{font-size:12.5px;color:var(--ink-2);margin-bottom:5px}
+.hero .val{font-size:48px;font-weight:600;letter-spacing:-.03em;line-height:1.05}
+@media(max-width:520px){.hero .val{font-size:36px}}
+.hero .sub{font-size:12.5px;color:var(--ink-muted);margin-top:8px}
+
+/* -------------------------------------------------------------- alerta */
+.alerta{display:flex;gap:13px;align-items:flex-start;border-radius:12px;padding:15px 17px;
+  margin-bottom:14px;border:1px solid var(--border);background:var(--surface);box-shadow:var(--shadow)}
+.alerta .ic{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  font-size:13px;font-weight:700;color:#fff;margin-top:1px}
+.alerta.critical .ic{background:var(--critical)}
+.alerta.warning .ic{background:var(--ink-2);color:var(--surface)}
+.alerta.serious .ic{background:var(--serious);color:#0b0b0b}
+.alerta b{font-weight:600}
+.alerta p{margin:4px 0 0;font-size:13.5px;color:var(--ink-2)}
+
+/* -------------------------------------------------------------- charts */
+.sec{margin:34px 0 0}
+.sec > h2{font-size:17px;margin-bottom:4px}
+.sec > .desc{font-size:13px;color:var(--ink-muted);margin-bottom:14px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+.chart-card h3{font-size:14.5px;margin-bottom:2px}
+.chart-card .cd{font-size:12.5px;color:var(--ink-muted);margin-bottom:14px}
+/* minmax(0,…): sem isso um SVG largo demais empurra a coluna e estoura a página */
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:14px;font-size:12.5px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+svg{display:block}
+.plot-scroll{overflow-x:auto;overflow-y:hidden}
+
+/* ------------------------------------------------------------- tooltip */
+#tip{position:fixed;pointer-events:none;z-index:60;background:var(--surface);
+  border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:12.5px;
+  box-shadow:0 4px 22px -6px rgba(0,0,0,.35);opacity:0;transition:opacity .1s;max-width:300px;color:var(--ink)}
+#tip.on{opacity:1}
+#tip .tt{font-weight:600;margin-bottom:6px;font-size:13px}
+#tip .tr{display:flex;justify-content:space-between;gap:16px;padding:2px 0;color:var(--ink-2)}
+#tip .tr b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+#tip .tf{margin-top:7px;padding-top:6px;border-top:1px solid var(--border);
+  display:flex;justify-content:space-between;gap:16px;font-weight:600}
+
+/* -------------------------------------------------------------- agenda */
+.agenda{display:flex;flex-direction:column;gap:12px}
+.dia{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  overflow:hidden;box-shadow:var(--shadow)}
+.dia > summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;gap:14px;
+  align-items:center;justify-content:space-between}
+.dia > summary::-webkit-details-marker{display:none}
+.dia > summary:hover{background:var(--surface-2)}
+.dtag{display:flex;align-items:baseline;gap:10px;min-width:0;flex-wrap:wrap}
+.dnum{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.dsem{font-size:12px;color:var(--ink-muted);text-transform:capitalize}
+.dbadge{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--surface-2);
+  border:1px solid var(--border);color:var(--ink-2);white-space:nowrap}
+.dbadge.hoje{background:var(--s1);border-color:var(--s1);color:#fff;font-weight:500}
+.dbadge.vencido{background:var(--critical);border-color:var(--critical);color:#fff;font-weight:500}
+.dtot{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dbody{padding:0 18px 16px;border-top:1px solid var(--border)}
+.empblk{margin-top:14px}
+.emphead{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding-bottom:7px;border-bottom:1px solid var(--grid);margin-bottom:6px}
+.emphead .nm{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:13.5px}
+.emphead .tv{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.item{display:flex;justify-content:space-between;gap:14px;padding:5px 0;font-size:13.5px}
+.item .l{color:var(--ink-2);min-width:0}
+.item .l .cat{color:var(--ink-muted);font-size:11.5px;margin-left:8px}
+.item .r{font-variant-numeric:tabular-nums;white-space:nowrap}
+.item .r.pend{color:var(--serious);font-size:12px}
+
+/* -------------------------------------------------------------- tabela */
+.tblwrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  box-shadow:var(--shadow);overflow-x:auto}
+#tbl,#tbl13{border-collapse:collapse;width:100%;font-size:13.5px;min-width:660px}
+#tbl th,#tbl td,#tbl13 th,#tbl13 td{padding:9px 14px;text-align:left;
+  border-bottom:1px solid var(--grid);white-space:nowrap}
+#tbl13 th.n,#tbl13 td.n{text-align:right;font-variant-numeric:tabular-nums}
+#tbl13 th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);
+  font-weight:500;background:var(--surface)}
+#tbl13 tbody tr:last-child td{border-bottom:none}
+#tbl13 tr.passada td{color:var(--ink-muted)}
+#tbl13 tr.fura td{background:color-mix(in srgb,var(--critical) 9%,transparent)}
+#tbl13 td.saldo{font-weight:600}
+#tbl13 .sem{font-weight:500}
+#tbl13 .marca{font-size:11px;padding:1px 7px;border-radius:999px;margin-left:8px;
+  border:1px solid var(--border);color:var(--ink-2)}
+#tbl13 .marca.hoje{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
+#tbl th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);
+  font-weight:500;cursor:pointer;position:sticky;top:0;background:var(--surface);z-index:1}
+#tbl th:hover{color:var(--ink)}
+#tbl td.n,#tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+#tbl tbody tr:hover{background:var(--surface-2)}
+#tbl tbody tr:last-child td{border-bottom:none}
+.tfoot{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:12px 16px;border-top:1px solid var(--border);font-size:12.5px;color:var(--ink-2)}
+
+/* ---------------------------------------------------------- diagnostico */
+.diag{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+@media(max-width:860px){.diag{grid-template-columns:minmax(0,1fr)}}
+.diag .card h3{font-size:14.5px;margin-bottom:10px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.diag .card p{margin:0 0 10px;font-size:13.5px;color:var(--ink-2);line-height:1.62}
+.diag .card p:last-child{margin-bottom:0}
+.diag .card b{color:var(--ink);font-weight:600}
+.pill{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;
+  padding:3px 8px;border-radius:5px;color:#fff}
+.pill.critical{background:var(--critical)}
+/* "observação" é o nível mais brando: selo de contorno, sem cor de estado */
+.pill.warning{background:transparent;border:1px solid var(--axis);color:var(--ink-2)}
+.pill.serious{background:var(--serious);color:#0b0b0b}
+.pill.good{background:var(--good)}
+.mini{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+.mini td{padding:5px 0;border-bottom:1px solid var(--grid);white-space:normal;color:var(--ink-2)}
+.mini td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;
+  padding-left:14px;font-weight:500;color:var(--ink)}
+/* .livre: coluna da direita carrega texto livre (não um valor) e pode quebrar */
+.mini.livre td:last-child{white-space:normal;font-variant-numeric:normal}
+.mini tr:last-child td{border-bottom:none}
+.neg{color:var(--critical)}
+.pos{color:var(--good-text)}
+footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
+  font-size:12px;color:var(--ink-muted);line-height:1.75}
+.vazio{padding:34px;text-align:center;color:var(--ink-muted);font-size:13.5px}
+@media print{ #gate,.filtros,.themebtn{display:none!important} body{background:#fff} }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <div class="logo">
+      <img class="logo-light" src="logo.png" alt="Artflex Estofados" width="440" height="264">
+      <img class="logo-dark" src="logo-dark.png" alt="Artflex Estofados" width="440" height="264">
+    </div>
+    <h1>Fluxo de Caixa</h1>
+    <p>Os dados desta página são criptografados. Informe a senha para descriptografar no seu navegador.</p>
+    <input id="pw" class="field" type="password" placeholder="Senha" autocomplete="current-password">
+    <div class="row">
+      <button id="entrar" class="btn primary" style="flex:1">Abrir painel</button>
+    </div>
+    <div id="erro" role="alert"></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+<header>
+  <div class="wrap">
+    <div class="hbrand">
+      <img class="logo-light" src="logo.png" alt="Artflex Estofados" width="440" height="264">
+      <img class="logo-dark" src="logo-dark.png" alt="Artflex Estofados" width="440" height="264">
+      <div>
+        <h1>Fluxo de Caixa — Contas a Pagar</h1>
+        <div class="brand">Artflex · Decorart · Sofá Outlet · Bessa · AMM</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:flex-end;gap:14px">
+      <div class="meta" id="meta"></div>
+      <button class="themebtn" id="tema">Tema</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="filtros">
+    <div class="frow">
+      <div class="fgrp"><label class="flab" for="de">De</label><input type="date" id="de" class="field"></div>
+      <div class="fgrp"><label class="flab" for="ate">Até</label><input type="date" id="ate" class="field"></div>
+      <div class="fgrp" style="flex:1;min-width:250px">
+        <span class="flab">Período rápido</span>
+        <div class="presets" id="presets"></div>
+      </div>
+      <div class="fgrp" style="min-width:210px">
+        <label class="flab" for="busca">Buscar descrição</label>
+        <input type="search" id="busca" class="field" placeholder="ex.: fornecedor, IPI…">
+      </div>
+    </div>
+    <div class="sep"></div>
+    <div class="frow">
+      <div class="fgrp" style="min-width:220px">
+        <span class="flab">Bloco do grupo</span>
+        <div class="presets" id="blocos"></div>
+      </div>
+      <div class="fgrp" style="flex:1;min-width:280px">
+        <span class="flab">Empresa</span>
+        <div class="presets" id="empresas"></div>
+      </div>
+      <div class="fgrp" style="min-width:260px">
+        <span class="flab">Natureza</span>
+        <div class="presets" id="categorias"></div>
+      </div>
+      <button class="btn" id="limpar">Limpar filtros</button>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="card hero">
+      <div class="lab">Total a pagar no período selecionado</div>
+      <div class="val" id="k-total">—</div>
+      <div class="sub" id="k-total-sub"></div>
+    </div>
+    <div class="card tile"><div class="lab">Saldo em conta</div>
+      <div class="val" id="k-saldo">—</div><div class="sub" id="k-saldo-sub"></div></div>
+    <div class="card tile"><div class="lab">Maior dia do período</div>
+      <div class="val" id="k-pico">—</div><div class="sub" id="k-pico-sub"></div></div>
+    <div class="card tile"><div class="lab">Lançamentos</div>
+      <div class="val" id="k-qtd">—</div><div class="sub" id="k-qtd-sub"></div></div>
+  </div>
+
+  <div id="alertas"></div>
+
+  <section class="sec" id="sec13">
+    <h2>Fluxo de caixa — 13 semanas</h2>
+    <div class="desc" id="desc13"></div>
+    <div class="chart-card">
+      <h3>Saldo projetado, semana a semana</h3>
+      <div class="cd" id="cd13"></div>
+      <div class="plot-scroll"><div id="ch13"></div></div>
+    </div>
+    <div class="tblwrap">
+      <table id="tbl13">
+        <thead><tr>
+          <th>Semana</th><th class="n">Entradas</th><th class="n">Saídas</th>
+          <th class="n">Fluxo</th><th class="n">Saldo final</th>
+        </tr></thead>
+        <tbody id="tb13"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>Distribuição no tempo</h2>
+    <div class="desc">Quanto sai por data, empilhado por empresa. Passe o mouse sobre uma coluna para ver o detalhe do dia.</div>
+    <div class="chart-card">
+      <h3>Pagamentos por data</h3>
+      <div class="cd" id="cd-dia"></div>
+      <div class="plot-scroll"><div id="ch-dia"></div></div>
+      <div class="legend" id="lg-dia"></div>
+    </div>
+    <div class="chart-card">
+      <h3>Desembolso acumulado</h3>
+      <div class="cd">Quanto de caixa é consumido desde o início do período até cada data.</div>
+      <div class="plot-scroll"><div id="ch-acum"></div></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>Composição</h2>
+    <div class="desc">Onde o dinheiro está indo, dentro do período filtrado.</div>
+    <div class="grid2">
+      <div class="chart-card">
+        <h3>Por empresa</h3>
+        <div class="cd">Mesmas cores do gráfico por data.</div>
+        <div class="plot-scroll"><div id="ch-emp"></div></div>
+      </div>
+      <div class="chart-card">
+        <h3>Por natureza do gasto</h3>
+        <div class="cd">Classificação inferida a partir da descrição da planilha.</div>
+        <div class="plot-scroll"><div id="ch-cat"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>Agenda de pagamentos</h2>
+    <div class="desc" id="desc-agenda"></div>
+    <div class="agenda" id="agenda"></div>
+  </section>
+
+  <section class="sec">
+    <h2>Tabela detalhada</h2>
+    <div class="desc">Clique no cabeçalho para ordenar. Exporte para conferir na planilha.</div>
+    <div class="tblwrap">
+      <table id="tbl">
+        <thead><tr>
+          <th data-k="d">Data</th><th data-k="e">Empresa</th><th data-k="n">Descrição</th>
+          <th data-k="c">Natureza</th><th class="n" data-k="v">Valor</th>
+        </tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+      <div class="tfoot">
+        <span id="tfoot-info"></span>
+        <button class="btn" id="csv">Exportar CSV</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2>Diagnóstico financeiro</h2>
+    <div class="desc">Leitura da planilha inteira — não depende dos filtros acima.</div>
+    <div class="diag" id="diag"></div>
+  </section>
+
+  <footer id="rodape"></footer>
+</div>
+</div>
+
+<div id="tip"></div>
+<script src="dados.js?v=523fa3c9"></script>
+<script src="app.js?v=523fa3c9"></script>
+</body>
+</html>

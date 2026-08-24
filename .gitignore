@@ -1,0 +1,22 @@
+.claude/
+__pycache__/
+*.xlsx
+# CSV nunca vai para o repositorio: e dado financeiro em texto puro e o repo
+# e publico. O recebimentos.csv fica so na sua maquina - o build.py le dele e
+# grava cifrado no dados.js. O modelo, que so tem dado ficticio, e a excecao.
+*.csv
+!recebimentos-modelo.csv
+
+# dividas.csv tem saldo real e fica so na sua maquina (coberto por *.csv)
+!dividas-modelo.csv
+
+# Documentos com estrutura societaria, exposicao fiscal e saldos reais.
+# Ficam SO na maquina do Andriel - o repositorio e publico.
+GRUPO.md
+INVENTARIO.md
+
+# notas.json: analise que nao pode viver em repo publico. Vai cifrada no dados.js.
+notas.json
+
+# Estrutura societaria e regime tributario: so na maquina de quem opera.
+grupo.json
