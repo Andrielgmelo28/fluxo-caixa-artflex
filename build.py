@@ -17,6 +17,30 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ITER = 310_000
 
+# ------------------------------------------------------------------ config
+# Arquivos com dado real (grupo.json, notas.json, dividas.csv, recebimentos.csv)
+# moram no repositorio PRIVADO, nao aqui. Guardar copia dos dois lados criava
+# divergencia silenciosa: editar um e o outro ficar velho sem ninguem notar.
+#
+# Ordem de busca:
+#   1. variavel de ambiente ARTFLEX_CONFIG
+#   2. repositorio privado clonado ao lado (config/)
+#   3. esta pasta - fallback, para quem preferir copiar os arquivos
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+_VIZINHOS = [
+    os.path.join(os.path.dirname(_AQUI), "FINANCEIRO - ARTFLEX - CONTEXTO", "config"),
+    os.path.join(os.path.dirname(_AQUI), "artflex-financeiro", "config"),
+]
+
+
+def cfg(nome):
+    """Caminho do arquivo de configuracao, onde quer que ele esteja."""
+    for base in [os.environ.get("ARTFLEX_CONFIG")] + _VIZINHOS + [_AQUI]:
+        if base and os.path.exists(os.path.join(base, nome)):
+            return os.path.join(base, nome)
+    return os.path.join(_AQUI, nome)          # nao existe: o chamador trata
+
+
 # ----------------------------------------------------------------- categorias
 # ------------------------------------------------------------- exclusoes
 # Lancamentos que a planilha traz mas que nao devem aparecer no painel,
@@ -35,7 +59,7 @@ EXCLUIR = []
 # regime tributario e relacao matriz/filial nao podem ficar em repositorio
 # publico. O grupo-modelo.json versionado mostra o formato.
 _G = {}
-_gp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grupo.json")
+_gp = cfg("grupo.json")
 if os.path.exists(_gp):
     with open(_gp, encoding="utf-8") as _f:
         _G = json.load(_f)
@@ -114,6 +138,7 @@ def txt(v):
     return s or None
 
 
+
 # ------------------------------------------------------------- recebimentos
 # Porta de entrada do dinheiro que entra. Enquanto nao existir recebimentos.csv,
 # o fluxo de 13 semanas mostra so o lado da saida - e diz isso na cara.
@@ -166,7 +191,7 @@ def _valor(v):
 
 
 def ler_recebimentos(pasta):
-    caminho = os.path.join(pasta, "recebimentos.csv")
+    caminho = cfg("recebimentos.csv")
     if not os.path.exists(caminho):
         return [], []
 
@@ -219,7 +244,7 @@ def ler_recebimentos(pasta):
 #                 sacado nao pagar, a Artflex recompra o titulo. Por isso entra
 #                 no quadro de divida, separado das operacoes que amortizam.
 def ler_dividas(pasta):
-    caminho = os.path.join(pasta, "dividas.csv")
+    caminho = cfg("dividas.csv")
     if not os.path.exists(caminho):
         return [], []
     with open(caminho, encoding="utf-8-sig", newline="") as f:
@@ -373,7 +398,7 @@ def extrair(caminho):
     # notas.json: analise em prosa que NAO pode ficar no codigo, porque o
     # repositorio e publico. Entra cifrada no dados.js, como o resto.
     notas = []
-    _n = os.path.join(pasta, "notas.json")
+    _n = cfg("notas.json")
     if os.path.exists(_n):
         with open(_n, encoding="utf-8") as f:
             notas = json.load(f)

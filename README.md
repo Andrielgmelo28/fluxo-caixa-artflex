@@ -69,9 +69,17 @@ Rode o `build.py` com a senha nova e faça push de `dados.js` e `index.html`.
 
 ## Arquivos de entrada
 
-Além da planilha, o build lê dois CSVs opcionais na mesma pasta. Ambos são **ignorados
-pelo git** — ficam só na máquina de quem opera. Os `*-modelo.csv` versionados mostram o
-formato com dados fictícios.
+Os arquivos com dado real **não ficam nesta pasta**. Eles moram no repositório privado
+do projeto, e o build os encontra sozinho, nesta ordem:
+
+1. a variável de ambiente `ARTFLEX_CONFIG`
+2. o repositório privado clonado ao lado, em `config/`
+3. esta pasta — só como alternativa, para quem preferir copiar
+
+Manter cópia dos dois lados criava divergência silenciosa: editar uma e a outra ficar
+velha sem ninguém notar. **Há um só original, e ele fica no repositório privado.**
+
+Os `*-modelo.*` versionados aqui mostram o formato, com dados fictícios.
 
 ### `recebimentos.csv` — o que entra
 
