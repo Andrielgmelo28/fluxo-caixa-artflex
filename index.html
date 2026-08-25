@@ -209,11 +209,32 @@ svg{display:block}
 .item .r{font-variant-numeric:tabular-nums;white-space:nowrap}
 .item .r.pend{color:var(--serious);font-size:12px}
 
+/* ---------------------------------------------------------------- abas */
+.tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--border);
+  margin:0 0 26px}
+.tab{appearance:none;border:none;background:none;font:inherit;font-size:14px;font-weight:500;
+  color:var(--ink-2);padding:12px 16px;cursor:pointer;border-radius:9px 9px 0 0;
+  border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:8px}
+.tab:hover{color:var(--ink);background:var(--surface-2)}
+.tab[aria-selected="true"]{color:var(--ink);font-weight:600;border-bottom-color:var(--brand)}
+.tab .cnt{font-size:11.5px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
+.tab[aria-selected="true"] .cnt{color:var(--ink-2)}
+@media(max-width:640px){.tab{padding:11px 11px;font-size:13px}}
+
+/* Selo de situação do título. */
+.tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);
+  color:var(--ink-2);background:var(--surface-2);white-space:nowrap;display:inline-block}
+.tag.venc{background:color-mix(in srgb,var(--critical) 13%,transparent);
+  border-color:color-mix(in srgb,var(--critical) 45%,transparent);color:var(--critical);font-weight:500}
+.tag.desc{background:color-mix(in srgb,var(--serious) 20%,transparent);
+  border-color:color-mix(in srgb,var(--serious) 55%,transparent);color:var(--ink)}
+
 /* -------------------------------------------------------------- tabela */
 .tblwrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;
   box-shadow:var(--shadow);overflow-x:auto}
-#tbl,#tbl13{border-collapse:collapse;width:100%;font-size:13.5px;min-width:660px}
-#tbl th,#tbl td,#tbl13 th,#tbl13 td{padding:9px 14px;text-align:left;
+.dtbl,#tbl13{border-collapse:collapse;width:100%;font-size:13.5px;min-width:660px}
+.dtbl th,.dtbl td,#tbl13 th,#tbl13 td{padding:9px 14px;text-align:left;
   border-bottom:1px solid var(--grid);white-space:nowrap}
 #tbl13 th.n,#tbl13 td.n{text-align:right;font-variant-numeric:tabular-nums}
 #tbl13 th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);
@@ -226,12 +247,15 @@ svg{display:block}
 #tbl13 .marca{font-size:11px;padding:1px 7px;border-radius:999px;margin-left:8px;
   border:1px solid var(--border);color:var(--ink-2)}
 #tbl13 .marca.hoje{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:600}
-#tbl th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);
+.dtbl th{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-muted);
   font-weight:500;cursor:pointer;position:sticky;top:0;background:var(--surface);z-index:1}
-#tbl th:hover{color:var(--ink)}
-#tbl td.n,#tbl th.n{text-align:right;font-variant-numeric:tabular-nums}
-#tbl tbody tr:hover{background:var(--surface-2)}
-#tbl tbody tr:last-child td{border-bottom:none}
+.dtbl th:hover{color:var(--ink)}
+.dtbl td.n,.dtbl th.n{text-align:right;font-variant-numeric:tabular-nums}
+.dtbl tbody tr:hover{background:var(--surface-2)}
+.dtbl tbody tr:last-child td{border-bottom:none}
+/* Sacado e o unico campo que pode quebrar: nome de empresa e longo. */
+.dtbl td.nome{white-space:normal;min-width:220px}
+.dtbl td .doc{color:var(--ink-muted);font-size:11.5px;display:block;margin-top:2px}
 .tfoot{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
   padding:12px 16px;border-top:1px solid var(--border);font-size:12.5px;color:var(--ink-2)}
 
@@ -261,7 +285,12 @@ svg{display:block}
 footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
   font-size:12px;color:var(--ink-muted);line-height:1.75}
 .vazio{padding:34px;text-align:center;color:var(--ink-muted);font-size:13.5px}
-@media print{ #gate,.filtros,.themebtn{display:none!important} body{background:#fff} }
+@media print{
+  #gate,.filtros,.themebtn,.tabs{display:none!important}
+  /* No papel nao existe aba: sai tudo, uma seção após a outra. */
+  .tabpane[hidden]{display:block!important}
+  body{background:#fff}
+}
 </style>
 </head>
 <body>
@@ -289,8 +318,8 @@ footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
       <img class="logo-light" src="logo.png" alt="Artflex Estofados" width="440" height="264">
       <img class="logo-dark" src="logo-dark.png" alt="Artflex Estofados" width="440" height="264">
       <div>
-        <h1>Fluxo de Caixa — Contas a Pagar</h1>
-        <div class="brand">Artflex · Decorart · Sofá Outlet · Bessa · AMM</div>
+        <h1>Fluxo de Caixa</h1>
+        <div class="brand">Artflex &middot; Decorart &middot; Sof&aacute; Outlet &middot; Bessa &middot; AMM</div>
       </div>
     </div>
     <div style="display:flex;align-items:flex-end;gap:14px">
@@ -300,143 +329,281 @@ footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
   </div>
 </header>
 
-<div class="wrap">
+<div class="wrap" id="conteudo">
 
-  <div class="filtros">
-    <div class="frow">
-      <div class="fgrp"><label class="flab" for="de">De</label><input type="date" id="de" class="field"></div>
-      <div class="fgrp"><label class="flab" for="ate">Até</label><input type="date" id="ate" class="field"></div>
-      <div class="fgrp" style="flex:1;min-width:250px">
-        <span class="flab">Período rápido</span>
-        <div class="presets" id="presets"></div>
+  <nav class="tabs" role="tablist" aria-label="Se&ccedil;&otilde;es do painel">
+    <button class="tab" role="tab" id="tab-resumo" aria-controls="pane-resumo"
+            aria-selected="true">Resumo de caixa</button>
+    <button class="tab" role="tab" id="tab-pagar" aria-controls="pane-pagar"
+            aria-selected="false" tabindex="-1">Contas a pagar<span class="cnt" id="cnt-pagar"></span></button>
+    <button class="tab" role="tab" id="tab-receber" aria-controls="pane-receber"
+            aria-selected="false" tabindex="-1">Contas a receber<span class="cnt" id="cnt-receber"></span></button>
+    <button class="tab" role="tab" id="tab-diag" aria-controls="pane-diag"
+            aria-selected="false" tabindex="-1">Diagn&oacute;stico financeiro</button>
+  </nav>
+
+  <!-- ================================================= RESUMO DE CAIXA -->
+  <div class="tabpane" id="pane-resumo" role="tabpanel" aria-labelledby="tab-resumo">
+
+    <div class="kpis">
+      <div class="card hero">
+        <div class="lab">Posi&ccedil;&atilde;o de caixa projetada &mdash; fim das 13 semanas</div>
+        <div class="val" id="r-pos">&mdash;</div>
+        <div class="sub" id="r-pos-sub"></div>
       </div>
-      <div class="fgrp" style="min-width:210px">
-        <label class="flab" for="busca">Buscar descrição</label>
-        <input type="search" id="busca" class="field" placeholder="ex.: fornecedor, IPI…">
-      </div>
+      <div class="card tile"><div class="lab">Saldo em conta hoje</div>
+        <div class="val" id="r-saldo">&mdash;</div><div class="sub" id="r-saldo-sub"></div></div>
+      <div class="card tile"><div class="lab">Sai nas 13 semanas</div>
+        <div class="val" id="r-pagar">&mdash;</div><div class="sub" id="r-pagar-sub"></div></div>
+      <div class="card tile"><div class="lab">Entra nas 13 semanas</div>
+        <div class="val" id="r-receber">&mdash;</div><div class="sub" id="r-receber-sub"></div></div>
     </div>
-    <div class="sep"></div>
-    <div class="frow">
-      <div class="fgrp" style="min-width:220px">
-        <span class="flab">Bloco do grupo</span>
-        <div class="presets" id="blocos"></div>
+
+    <div id="alertas"></div>
+
+    <section class="sec" id="sec13">
+      <h2>Fluxo de caixa &mdash; 13 semanas</h2>
+      <div class="desc" id="desc13"></div>
+      <div class="chart-card">
+        <h3>Saldo projetado, semana a semana</h3>
+        <div class="cd" id="cd13"></div>
+        <div class="plot-scroll"><div id="ch13"></div></div>
       </div>
-      <div class="fgrp" style="flex:1;min-width:280px">
-        <span class="flab">Empresa</span>
-        <div class="presets" id="empresas"></div>
+      <div class="tblwrap">
+        <table id="tbl13">
+          <thead><tr>
+            <th>Semana</th><th class="n">Entradas</th><th class="n">Sa&iacute;das</th>
+            <th class="n">Fluxo</th><th class="n">Saldo final</th>
+          </tr></thead>
+          <tbody id="tb13"></tbody>
+        </table>
       </div>
-      <div class="fgrp" style="min-width:260px">
-        <span class="flab">Natureza</span>
-        <div class="presets" id="categorias"></div>
+    </section>
+
+    <section class="sec">
+      <h2>Previs&atilde;o de recebimentos</h2>
+      <div class="desc">Vencimentos da carteira simples, semana a semana. A carteira
+        descontada fica de fora &mdash; aquele dinheiro j&aacute; entrou.</div>
+      <div class="chart-card">
+        <h3>A receber por semana</h3>
+        <div class="cd" id="cd-prev"></div>
+        <div class="plot-scroll"><div id="ch-prev"></div></div>
       </div>
-      <button class="btn" id="limpar">Limpar filtros</button>
-    </div>
+    </section>
   </div>
 
-  <div class="kpis">
-    <div class="card hero">
-      <div class="lab">Total a pagar no período selecionado</div>
-      <div class="val" id="k-total">—</div>
-      <div class="sub" id="k-total-sub"></div>
+  <!-- =================================================== CONTAS A PAGAR -->
+  <div class="tabpane" id="pane-pagar" role="tabpanel" aria-labelledby="tab-pagar" hidden>
+
+    <div class="filtros">
+      <div class="frow">
+        <div class="fgrp"><label class="flab" for="de">De</label><input type="date" id="de" class="field"></div>
+        <div class="fgrp"><label class="flab" for="ate">At&eacute;</label><input type="date" id="ate" class="field"></div>
+        <div class="fgrp" style="flex:1;min-width:250px">
+          <span class="flab">Per&iacute;odo r&aacute;pido</span>
+          <div class="presets" id="presets"></div>
+        </div>
+        <div class="fgrp" style="min-width:210px">
+          <label class="flab" for="busca">Buscar descri&ccedil;&atilde;o</label>
+          <input type="search" id="busca" class="field" placeholder="ex.: fornecedor, IPI&hellip;">
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div class="frow">
+        <div class="fgrp" style="min-width:220px">
+          <span class="flab">Bloco do grupo</span>
+          <div class="presets" id="blocos"></div>
+        </div>
+        <div class="fgrp" style="flex:1;min-width:280px">
+          <span class="flab">Empresa</span>
+          <div class="presets" id="empresas"></div>
+        </div>
+        <div class="fgrp" style="min-width:260px">
+          <span class="flab">Natureza</span>
+          <div class="presets" id="categorias"></div>
+        </div>
+        <button class="btn" id="limpar">Limpar filtros</button>
+      </div>
     </div>
-    <div class="card tile"><div class="lab">Saldo em conta</div>
-      <div class="val" id="k-saldo">—</div><div class="sub" id="k-saldo-sub"></div></div>
-    <div class="card tile"><div class="lab">Maior dia do período</div>
-      <div class="val" id="k-pico">—</div><div class="sub" id="k-pico-sub"></div></div>
-    <div class="card tile"><div class="lab">Lançamentos</div>
-      <div class="val" id="k-qtd">—</div><div class="sub" id="k-qtd-sub"></div></div>
+
+    <div class="kpis">
+      <div class="card hero">
+        <div class="lab">Total a pagar no per&iacute;odo selecionado</div>
+        <div class="val" id="k-total">&mdash;</div>
+        <div class="sub" id="k-total-sub"></div>
+      </div>
+      <div class="card tile"><div class="lab">Saldo em conta</div>
+        <div class="val" id="k-saldo">&mdash;</div><div class="sub" id="k-saldo-sub"></div></div>
+      <div class="card tile"><div class="lab">Maior dia do per&iacute;odo</div>
+        <div class="val" id="k-pico">&mdash;</div><div class="sub" id="k-pico-sub"></div></div>
+      <div class="card tile"><div class="lab">Lan&ccedil;amentos</div>
+        <div class="val" id="k-qtd">&mdash;</div><div class="sub" id="k-qtd-sub"></div></div>
+    </div>
+
+    <section class="sec">
+      <h2>Distribui&ccedil;&atilde;o no tempo</h2>
+      <div class="desc">Quanto sai por data, empilhado por empresa. Passe o mouse sobre uma
+        coluna para ver o detalhe do dia.</div>
+      <div class="chart-card">
+        <h3>Pagamentos por data</h3>
+        <div class="cd" id="cd-dia"></div>
+        <div class="plot-scroll"><div id="ch-dia"></div></div>
+        <div class="legend" id="lg-dia"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Desembolso acumulado</h3>
+        <div class="cd">Quanto de caixa &eacute; consumido desde o in&iacute;cio do per&iacute;odo at&eacute; cada data.</div>
+        <div class="plot-scroll"><div id="ch-acum"></div></div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>Composi&ccedil;&atilde;o</h2>
+      <div class="desc">Onde o dinheiro est&aacute; indo, dentro do per&iacute;odo filtrado.</div>
+      <div class="grid2">
+        <div class="chart-card">
+          <h3>Por empresa</h3>
+          <div class="cd">Mesmas cores do gr&aacute;fico por data.</div>
+          <div class="plot-scroll"><div id="ch-emp"></div></div>
+        </div>
+        <div class="chart-card">
+          <h3>Por natureza do gasto</h3>
+          <div class="cd">Classifica&ccedil;&atilde;o inferida a partir da descri&ccedil;&atilde;o da planilha.</div>
+          <div class="plot-scroll"><div id="ch-cat"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>Agenda de pagamentos</h2>
+      <div class="desc" id="desc-agenda"></div>
+      <div class="agenda" id="agenda"></div>
+    </section>
+
+    <section class="sec">
+      <h2>Tabela detalhada</h2>
+      <div class="desc">Clique no cabe&ccedil;alho para ordenar. Exporte para conferir na planilha.</div>
+      <div class="tblwrap">
+        <table id="tbl" class="dtbl">
+          <thead><tr>
+            <th data-k="d">Data</th><th data-k="e">Empresa</th><th data-k="n">Descri&ccedil;&atilde;o</th>
+            <th data-k="c">Natureza</th><th class="n" data-k="v">Valor</th>
+          </tr></thead>
+          <tbody id="tb"></tbody>
+        </table>
+        <div class="tfoot">
+          <span id="tfoot-info"></span>
+          <button class="btn" id="csv">Exportar CSV</button>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <div id="alertas"></div>
+  <!-- ================================================= CONTAS A RECEBER -->
+  <div class="tabpane" id="pane-receber" role="tabpanel" aria-labelledby="tab-receber" hidden>
 
-  <section class="sec" id="sec13">
-    <h2>Fluxo de caixa — 13 semanas</h2>
-    <div class="desc" id="desc13"></div>
-    <div class="chart-card">
-      <h3>Saldo projetado, semana a semana</h3>
-      <div class="cd" id="cd13"></div>
-      <div class="plot-scroll"><div id="ch13"></div></div>
-    </div>
-    <div class="tblwrap">
-      <table id="tbl13">
-        <thead><tr>
-          <th>Semana</th><th class="n">Entradas</th><th class="n">Saídas</th>
-          <th class="n">Fluxo</th><th class="n">Saldo final</th>
-        </tr></thead>
-        <tbody id="tb13"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="sec">
-    <h2>Distribuição no tempo</h2>
-    <div class="desc">Quanto sai por data, empilhado por empresa. Passe o mouse sobre uma coluna para ver o detalhe do dia.</div>
-    <div class="chart-card">
-      <h3>Pagamentos por data</h3>
-      <div class="cd" id="cd-dia"></div>
-      <div class="plot-scroll"><div id="ch-dia"></div></div>
-      <div class="legend" id="lg-dia"></div>
-    </div>
-    <div class="chart-card">
-      <h3>Desembolso acumulado</h3>
-      <div class="cd">Quanto de caixa é consumido desde o início do período até cada data.</div>
-      <div class="plot-scroll"><div id="ch-acum"></div></div>
-    </div>
-  </section>
-
-  <section class="sec">
-    <h2>Composição</h2>
-    <div class="desc">Onde o dinheiro está indo, dentro do período filtrado.</div>
-    <div class="grid2">
-      <div class="chart-card">
-        <h3>Por empresa</h3>
-        <div class="cd">Mesmas cores do gráfico por data.</div>
-        <div class="plot-scroll"><div id="ch-emp"></div></div>
+    <div class="filtros">
+      <div class="frow">
+        <div class="fgrp"><label class="flab" for="rde">De</label><input type="date" id="rde" class="field"></div>
+        <div class="fgrp"><label class="flab" for="rate">At&eacute;</label><input type="date" id="rate" class="field"></div>
+        <div class="fgrp" style="flex:1;min-width:240px">
+          <label class="flab" for="rbusca">Buscar sacado</label>
+          <input type="search" id="rbusca" class="field" placeholder="nome ou CNPJ&hellip;">
+        </div>
       </div>
-      <div class="chart-card">
-        <h3>Por natureza do gasto</h3>
-        <div class="cd">Classificação inferida a partir da descrição da planilha.</div>
-        <div class="plot-scroll"><div id="ch-cat"></div></div>
+      <div class="sep"></div>
+      <div class="frow">
+        <div class="fgrp" style="min-width:210px">
+          <span class="flab">Situa&ccedil;&atilde;o</span>
+          <div class="presets" id="rsit"></div>
+        </div>
+        <div class="fgrp" style="min-width:230px">
+          <span class="flab">Carteira</span>
+          <div class="presets" id="rcart"></div>
+        </div>
+        <div class="fgrp" style="flex:1;min-width:240px">
+          <span class="flab">Fonte</span>
+          <div class="presets" id="rbanco"></div>
+        </div>
+        <button class="btn" id="rlimpar">Limpar filtros</button>
       </div>
     </div>
-  </section>
 
-  <section class="sec">
-    <h2>Agenda de pagamentos</h2>
-    <div class="desc" id="desc-agenda"></div>
-    <div class="agenda" id="agenda"></div>
-  </section>
-
-  <section class="sec">
-    <h2>Tabela detalhada</h2>
-    <div class="desc">Clique no cabeçalho para ordenar. Exporte para conferir na planilha.</div>
-    <div class="tblwrap">
-      <table id="tbl">
-        <thead><tr>
-          <th data-k="d">Data</th><th data-k="e">Empresa</th><th data-k="n">Descrição</th>
-          <th data-k="c">Natureza</th><th class="n" data-k="v">Valor</th>
-        </tr></thead>
-        <tbody id="tb"></tbody>
-      </table>
-      <div class="tfoot">
-        <span id="tfoot-info"></span>
-        <button class="btn" id="csv">Exportar CSV</button>
+    <div class="kpis">
+      <div class="card hero">
+        <div class="lab">Carteira simples &mdash; ainda a receber</div>
+        <div class="val" id="rk-simples">&mdash;</div>
+        <div class="sub" id="rk-simples-sub"></div>
       </div>
+      <div class="card tile"><div class="lab">Vencidos</div>
+        <div class="val" id="rk-venc">&mdash;</div><div class="sub" id="rk-venc-sub"></div></div>
+      <div class="card tile"><div class="lab">A vencer</div>
+        <div class="val" id="rk-avencer">&mdash;</div><div class="sub" id="rk-avencer-sub"></div></div>
+      <div class="card tile"><div class="lab">Descontada &mdash; risco de recompra</div>
+        <div class="val" id="rk-desc">&mdash;</div><div class="sub" id="rk-desc-sub"></div></div>
     </div>
-  </section>
 
-  <section class="sec">
-    <h2>Diagnóstico financeiro</h2>
-    <div class="desc">Leitura da planilha inteira — não depende dos filtros acima.</div>
+    <div id="ralertas"></div>
+
+    <section class="sec">
+      <h2>Onde est&aacute; a carteira</h2>
+      <div class="desc">O aging mostra h&aacute; quanto tempo cada t&iacute;tulo est&aacute; vencido. A concentra&ccedil;&atilde;o
+        agrupa pela raiz do CNPJ &mdash; matriz e filial do mesmo grupo s&atilde;o o mesmo risco de cr&eacute;dito.</div>
+      <div class="grid2">
+        <div class="chart-card">
+          <h3>Idade da carteira</h3>
+          <div class="cd" id="cd-aging"></div>
+          <div class="plot-scroll"><div id="ch-aging"></div></div>
+        </div>
+        <div class="chart-card">
+          <h3>Concentra&ccedil;&atilde;o por cliente</h3>
+          <div class="cd" id="cd-conc"></div>
+          <div class="plot-scroll"><div id="ch-conc"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>Por fonte</h2>
+      <div class="desc">Cada banco e financeira, com o quanto j&aacute; venceu em cada um.</div>
+      <div class="tblwrap" style="padding:16px 18px">
+        <table class="mini" id="tbfontes"></table>
+      </div>
+    </section>
+
+    <section class="sec">
+      <h2>T&iacute;tulos</h2>
+      <div class="desc">Clique no cabe&ccedil;alho para ordenar.</div>
+      <div class="tblwrap">
+        <table id="tblrec" class="dtbl">
+          <thead><tr>
+            <th data-k="d">Vencimento</th><th data-k="sacado">Sacado</th>
+            <th data-k="banco">Fonte</th><th data-k="carteira">Carteira</th>
+            <th data-k="atraso">Situa&ccedil;&atilde;o</th><th class="n" data-k="v">Valor</th>
+          </tr></thead>
+          <tbody id="tbrec"></tbody>
+        </table>
+        <div class="tfoot">
+          <span id="rtfoot-info"></span>
+          <button class="btn" id="rcsv">Exportar CSV</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================ DIAGN&Oacute;STICO FINANCEIRO -->
+  <div class="tabpane" id="pane-diag" role="tabpanel" aria-labelledby="tab-diag" hidden>
+    <div class="desc" style="font-size:13px;color:var(--ink-muted);margin:0 0 18px">
+      Leitura da base inteira &mdash; n&atilde;o depende dos filtros das outras abas.</div>
     <div class="diag" id="diag"></div>
-  </section>
+  </div>
 
   <footer id="rodape"></footer>
 </div>
 </div>
 
 <div id="tip"></div>
-<script src="dados.js?v=c9541ae7"></script>
-<script src="app.js?v=c9541ae7"></script>
+<script src="dados.js?v=9b2e01cc"></script>
+<script src="app.js?v=9b2e01cc"></script>
 </body>
 </html>

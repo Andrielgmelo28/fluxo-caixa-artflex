@@ -5,10 +5,10 @@ __pycache__/
 # e publico. O recebimentos.csv fica so na sua maquina - o build.py le dele e
 # grava cifrado no dados.js. O modelo, que so tem dado ficticio, e a excecao.
 *.csv
-!recebimentos-modelo.csv
-
-# dividas.csv tem saldo real e fica so na sua maquina (coberto por *.csv)
-!dividas-modelo.csv
+# Excecao: os *-modelo.csv so tem dado ficticio e servem para documentar o
+# formato. A regra e por padrao, e nao um por um: o apelidos-modelo.csv ficou
+# de fora do repositorio sem ninguem notar quando a lista era nominal.
+!*-modelo.csv
 
 # Documentos com estrutura societaria, exposicao fiscal e saldos reais.
 # Ficam SO na maquina do Andriel - o repositorio e publico.

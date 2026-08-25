@@ -575,7 +575,7 @@ def ler_recebiveis(pasta):
                 t["cnpj"] = doc
 
     # 5. Nome truncado pelo banco. O Santander e a Credvale cortam em ~40
-    # caracteres, entao "NOGUEIRA COMERCIO VAREJISTA DE MOVEIS LT" nunca vai
+    # caracteres, entao "COMERCIO VAREJISTA DE MOVEIS E ELETRO LT" nunca vai
     # bater com "...LTDA" por igualdade.
     #
     # Isto continua NAO sendo semelhanca: exige que o nome do banco seja o

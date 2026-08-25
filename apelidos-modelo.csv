@@ -1,0 +1,4 @@
+nome_na_fonte;documento;nome_no_cadastro;confirmado_em;obs
+FULANO D SOUZA MOVEIS;11222333000181;FULANO DE SOUZA MOVEIS;2026-01-15;exemplo - o banco abrevia o nome do meio e o ERP nao
+COMERCIAL EXEMPLO LT;11222333000181;COMERCIAL EXEMPLO LTDA;2026-01-15;exemplo - mesma empresa do apelido acima, outra grafia
+BELTRANO MOVEIS ME;44555666000172;BELTRANO MOVEIS ME;2026-02-03;exemplo - cliente que nao esta no cadastro do ERP, documento informado a mao

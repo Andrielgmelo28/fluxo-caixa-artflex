@@ -34,6 +34,18 @@ const MES3 = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'ou
 const ddmm = s => { const d = D(s); return String(d.getDate()).padStart(2, '0') + '/' + MES3[d.getMonth()]; };
 const dtLongo = s => { const d = D(s); return String(d.getDate()).padStart(2, '0') + '/' +
   String(d.getMonth() + 1).padStart(2, '0') + '/' + d.getFullYear(); };
+/* CPF/CNPJ so aparece formatado na tela; o dado cru continua sendo o numero. */
+const fmtDoc = d => {
+  const x = String(d || '').replace(/\D/g, '');
+  if (x.length === 14) return x.slice(0, 2) + '.' + x.slice(2, 5) + '.' + x.slice(5, 8) +
+    '/' + x.slice(8, 12) + '-' + x.slice(12);
+  if (x.length === 11) return x.slice(0, 3) + '.' + x.slice(3, 6) + '.' + x.slice(6, 9) +
+    '-' + x.slice(9);
+  return x;
+};
+const diasDe = s => Math.round((D(HOJE) - D(s)) / 864e5);
+const pcts = (a, b) => b ? (a / b * 100).toFixed(1).replace('.', ',') + '%' : '—';
+
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let _cv;
@@ -149,10 +161,14 @@ function iniciar(d) {
   $('#meta').innerHTML = 'Planilha: <b>' + esc(d.origem) + '</b><br>' +
     'Período dos dados: ' + dtLongo(MIN) + ' a ' + dtLongo(MAX) + ' · extraído em ' + esc(d.gerado_em);
 
-  montaPresets(); montaChips(); montaDiag(); montaRodape();
+  montaPresets(); montaChips(); iniciarReceber(); montaDiag(); montaRodape();
 
   $('#gate').hidden = true; $('#gate').style.display = 'none';
   $('#app').hidden = false;
+
+  let aba = 'resumo';
+  try { aba = localStorage.getItem('artflex-aba') || 'resumo'; } catch (e) {}
+  mostraAba(aba);
   render();
   observaLargura();
 }
@@ -186,7 +202,7 @@ function montaPresets() {
 
 /* Chips = caixas de seleção: todos marcados no início, clique desmarca,
    duplo-clique isola aquele item. Mesma regra para empresa e natureza. */
-function chip(texto, dot, conjunto, valor, universo) {
+function chip(texto, dot, conjunto, valor, universo, aoMudar) {
   const b = document.createElement('button');
   b.className = 'chip fac'; b.type = 'button';
   b.title = 'Clique para mostrar/ocultar · duplo-clique para ver só este';
@@ -194,11 +210,11 @@ function chip(texto, dot, conjunto, valor, universo) {
   b.onclick = ev => {
     if (ev.detail > 1) return;                       // deixa o dblclick decidir
     if (conjunto.has(valor)) conjunto.delete(valor); else conjunto.add(valor);
-    render();
+    (aoMudar || render)();
   };
   b.ondblclick = () => {
     conjunto.clear(); conjunto.add(valor);
-    render();
+    (aoMudar || render)();
   };
   return b;
 }
@@ -439,6 +455,8 @@ function chart13(sem) {
   host.appendChild(svg);
 }
 
+let ULT13 = null;
+
 function render13() {
   const sem = fluxo13();
   const temRec = REC.filter(daEntidade).length > 0;
@@ -473,7 +491,9 @@ function render13() {
       '<td class="n saldo' + (s.saldo < 0 ? ' neg' : '') + '">' + money(s.saldo) + '</td></tr>';
   }).join('');
 
-  chart13(sem);
+  // O desenho fica com desenhaAba(): SVG montado dentro de painel escondido
+  // sai com largura 0. Guarda o calculo para nao refazer na troca de aba.
+  ULT13 = sem;
   return { sem, neg, temRec };
 }
 
@@ -1122,16 +1142,21 @@ function render() {
 
   const k = kpis(sel);
   const f13 = render13();
+  resumoKpis(f13);
   alertas(k, sel, f13);
-  desenhaGraficos(sel);
   agenda(sel);
   tabela(sel);
+  renderRec();
+
+  $('#cnt-pagar').textContent = PAG.length;
+  if (TIT.length) $('#cnt-receber').textContent = TIT.length;
+
+  desenhaAba();                      // só a aba visível desenha
 }
 
-/* Tudo que depende da largura disponível — chamado no render e sempre que
-   o container muda de tamanho (janela, zoom, painel lateral). */
-function desenhaGraficos(sel) {
-  chart13(fluxo13());
+/* Tudo que depende da largura disponível. Chamado só para a aba visível —
+   ver desenhaAba(). */
+function desenhaPagar(sel) {
   chartDia(sel);
   chartAcum(sel);
 
@@ -1158,6 +1183,352 @@ function desenhaGraficos(sel) {
   barras('#ch-cat', agCat, () => '--s1', 'Total por natureza do gasto');
 }
 
+
+/* ====================================================== contas a receber ==
+   A carteira vem dos arquivos de posicao dos bancos e das financeiras. A
+   distincao que manda em tudo aqui e simples x descontada:
+
+     simples     - titulo ainda seu. Se o sacado nao pagar, voce nao recebe.
+     descontada  - ja foi antecipado, o dinheiro entrou. O que resta nao e
+                   direito a receber, e RISCO DE RECOMPRA.
+
+   Somar os dois conta o mesmo dinheiro duas vezes. Por isso eles nunca
+   aparecem num total unico - nem nos KPIs, nem no grafico, nem no rodape. */
+const FR = { de: '', ate: '', sit: new Set(), cart: new Set(), banco: new Set(), busca: '' };
+const SITS = ['Vencidos', 'A vencer'];
+const NOMECART = { simples: 'Simples', descontada: 'Descontada' };
+let TIT = [], BANCOS = [], CARTS = [], RMIN = '', RMAX = '';
+let ordemRec = { k: 'd', dir: 1 };
+
+const situacao = t => t.d < HOJE ? 'Vencidos' : 'A vencer';
+const somaV = a => a.reduce((s, t) => s + (t.v || 0), 0);
+
+function iniciarReceber() {
+  TIT = (DADOS.titulos || []).slice().sort((a, b) => a.d.localeCompare(b.d));
+  if (!TIT.length) { $('#tab-receber').hidden = true; return; }
+
+  BANCOS = [...new Set(TIT.map(t => t.banco))].sort();
+  CARTS = ['simples', 'descontada'].filter(c => TIT.some(t => t.carteira === c));
+  RMIN = TIT[0].d; RMAX = TIT[TIT.length - 1].d;
+  FR.de = RMIN; FR.ate = RMAX;
+  SITS.forEach(s => FR.sit.add(s));
+  CARTS.forEach(c => FR.cart.add(c));
+  BANCOS.forEach(b => FR.banco.add(b));
+
+  $('#rde').value = RMIN; $('#rde').min = RMIN; $('#rde').max = RMAX;
+  $('#rate').value = RMAX; $('#rate').min = RMIN; $('#rate').max = RMAX;
+
+  const bs = $('#rsit'); bs.innerHTML = '';
+  SITS.forEach(s => bs.appendChild(chip(s, null, FR.sit, s, SITS, renderRec)));
+  const bc = $('#rcart'); bc.innerHTML = '';
+  CARTS.forEach(c => bc.appendChild(chip(NOMECART[c] || c, null, FR.cart, c, CARTS, renderRec)));
+  const bb = $('#rbanco'); bb.innerHTML = '';
+  BANCOS.forEach(b => bb.appendChild(chip(b, null, FR.banco, b, BANCOS, renderRec)));
+}
+
+function filtrarRec() {
+  const q = FR.busca.trim().toLowerCase();
+  const dig = q.replace(/[^0-9]/g, '');       // busca por CNPJ ignora pontuação
+  return TIT.filter(t => {
+    if (t.d < FR.de || t.d > FR.ate) return false;
+    if (!FR.sit.has(situacao(t))) return false;
+    if (!FR.cart.has(t.carteira)) return false;
+    if (!FR.banco.has(t.banco)) return false;
+    if (!q) return true;
+    if ((t.sacado || '').toLowerCase().includes(q)) return true;
+    return dig.length >= 3 && String(t.cnpj || '').includes(dig);
+  });
+}
+
+function kpisRec(sel) {
+  const simples = sel.filter(t => t.carteira === 'simples');
+  const desc = sel.filter(t => t.carteira === 'descontada');
+  const sVenc = simples.filter(t => t.d < HOJE);
+  const sFut = simples.filter(t => t.d >= HOJE);
+  const dVenc = desc.filter(t => t.d < HOJE);
+
+  $('#rk-simples').textContent = money(somaV(simples));
+  $('#rk-simples-sub').innerHTML = simples.length + ' títulos · é o dinheiro que ainda pode ' +
+    'entrar. Não está somado com a carteira descontada — seria contar duas vezes.';
+
+  $('#rk-venc').textContent = money(somaV(sVenc));
+  $('#rk-venc').className = 'val' + (somaV(sVenc) ? ' neg' : '');
+  $('#rk-venc-sub').innerHTML = sVenc.length + ' títulos · ' +
+    pcts(somaV(sVenc), somaV(simples)) + ' da carteira simples';
+
+  $('#rk-avencer').textContent = money(somaV(sFut));
+  $('#rk-avencer-sub').innerHTML = sFut.length + ' títulos · vencem de hoje em diante';
+
+  $('#rk-desc').textContent = money(somaV(desc));
+  $('#rk-desc-sub').innerHTML = desc.length + ' títulos · o dinheiro já entrou. ' +
+    (dVenc.length
+      ? '<b class="neg">' + money(somaV(dVenc)) + ' vencidos e não liquidados</b> — recompra a caminho.'
+      : 'Nenhum vencido em aberto.');
+}
+
+function alertasRec(sel) {
+  const box = $('#ralertas'); box.innerHTML = '';
+  const add = (nivel, ic, titulo, texto) => {
+    const d = document.createElement('div');
+    d.className = 'alerta ' + nivel;
+    d.innerHTML = '<div class="ic">' + ic + '</div><div><b>' + titulo + '</b><p>' + texto + '</p></div>';
+    box.appendChild(d);
+  };
+  const desc = sel.filter(t => t.carteira === 'descontada');
+  const dVenc = desc.filter(t => t.d < HOJE);
+  const simples = sel.filter(t => t.carteira === 'simples');
+  const sVenc = simples.filter(t => t.d < HOJE);
+
+  if (dVenc.length) {
+    add('critical', '!', 'Recompra a caminho',
+      '<b>' + money(somaV(dVenc)) + '</b> em ' + dVenc.length + ' títulos já antecipados ' +
+      'venceram e não foram liquidados. Nos contratos com coobrigação, o que o sacado não paga ' +
+      '<b>volta para você, com encargos</b>. Nos borderôs conferidos, o encargo de recompra ' +
+      'chegou a 12% sobre 18 dias de atraso — perto de 20% ao mês.');
+  }
+  const total = somaV(simples);
+  if (total && somaV(sVenc) / total > 0.2) {
+    add('serious', '!', pcts(somaV(sVenc), total) + ' da carteira simples está vencida',
+      sVenc.length + ' de ' + simples.length + ' títulos, ' + money(somaV(sVenc)) + '. ' +
+      'Não é ruído de calendário — é boa parte da explicação da pressão de caixa e da ' +
+      'dependência de antecipação. Cobrar no vencimento vale mais que negociar taxa.');
+  }
+}
+
+/* Aging: ha quanto tempo cada titulo venceu. So carteira simples - o
+   descontado ja virou caixa e a leitura dele e outra (risco de recompra). */
+function chartAging(sel) {
+  const simples = sel.filter(t => t.carteira === 'simples');
+  const FAIXAS = [
+    ['A vencer', t => t.d >= HOJE, '--s4'],
+    ['1 a 30 dias', t => { const x = diasDe(t.d); return x >= 1 && x <= 30; }, '--s1'],
+    ['31 a 60 dias', t => { const x = diasDe(t.d); return x >= 31 && x <= 60; }, '--s3'],
+    ['61 a 90 dias', t => { const x = diasDe(t.d); return x >= 61 && x <= 90; }, '--serious'],
+    ['Mais de 90 dias', t => diasDe(t.d) > 90, '--critical'],
+  ];
+  const total = somaV(simples);
+  const itens = FAIXAS.map(f => {
+    const l = simples.filter(f[1]);
+    return { k: f[0], v: somaV(l), n: l.length, cor: f[2], pct: pcts(somaV(l), total) };
+  });
+  const vencido = itens.slice(1).reduce((s, x) => s + x.v, 0);
+  $('#cd-aging').innerHTML = simples.length
+    ? 'Só a carteira simples, ' + money(total) + '. <b>' + money(vencido) + '</b> já venceu — ' +
+      pcts(vencido, total) + ' dela.'
+    : 'Nenhum título da carteira simples nos filtros atuais.';
+  barras('#ch-aging', itens.filter(x => x.v > 0), it => it.cor, 'Idade da carteira simples');
+}
+
+function chartConc(sel) {
+  const porRaiz = {};
+  sel.forEach(t => {
+    const k = t.raiz || ('n:' + t.sacado);
+    if (!porRaiz[k]) porRaiz[k] = { k: t.sacado || '(sem nome)', v: 0, n: 0, nomes: new Set(), docs: new Set() };
+    const e = porRaiz[k];
+    e.v += t.v; e.n++; e.nomes.add(t.sacado); if (t.cnpj) e.docs.add(t.cnpj);
+  });
+  const total = somaV(sel);
+  const todos = Object.values(porRaiz).sort((a, b) => b.v - a.v);
+  const top = todos.slice(0, 10);
+  top.forEach(x => {
+    x.pct = pcts(x.v, total);
+    if (x.docs.size > 1) x.k += ' (' + x.docs.size + ' CNPJs)';
+  });
+  const soma10 = top.reduce((s, x) => s + x.v, 0);
+  $('#cd-conc').innerHTML = todos.length
+    ? todos.length + ' clientes. Os 10 maiores somam <b>' + pcts(soma10, total) +
+      '</b> e o maior sozinho é <b>' + pcts(top[0].v, total) + '</b>.'
+    : 'Sem títulos nos filtros atuais.';
+  barras('#ch-conc', top, () => '--s2', 'Concentração por cliente');
+}
+
+function tabelaFontes(sel) {
+  const f = {};
+  sel.forEach(t => {
+    const k = t.banco + '|' + t.carteira;
+    if (!f[k]) f[k] = { banco: t.banco, cart: t.carteira, v: 0, n: 0, venc: 0, nv: 0 };
+    const e = f[k];
+    e.v += t.v; e.n++;
+    if (t.d < HOJE) { e.venc += t.v; e.nv++; }
+  });
+  const lista = Object.values(f).sort((a, b) => b.v - a.v);
+  $('#tbfontes').innerHTML = lista.length
+    ? '<tr><td><b>Fonte</b></td><td><b>Saldo · do qual vencido</b></td></tr>' +
+      lista.map(x =>
+        '<tr><td>' + esc(x.banco) + ' · ' + x.cart +
+        ' <span style="color:var(--ink-muted)">' + x.n + ' títulos</span></td>' +
+        '<td>' + money(x.v) +
+        (x.venc ? ' · <span class="neg">' + money(x.venc) + '</span>' : '') +
+        '</td></tr>').join('')
+    : '<tr><td>Sem títulos nos filtros atuais.</td></tr>';
+}
+
+function tabelaRec(sel) {
+  const k = ordemRec.k === 'atraso' ? 'd' : ordemRec.k;
+  const arr = sel.slice().sort((a, b) => {
+    const va = k === 'v' ? (a.v || 0) : String(a[k] || '');
+    const vb = k === 'v' ? (b.v || 0) : String(b[k] || '');
+    if (va < vb) return -ordemRec.dir;
+    if (va > vb) return ordemRec.dir;
+    return a.d.localeCompare(b.d);
+  });
+  const LIM = 400;
+  const mostra = arr.slice(0, LIM);
+  $('#tbrec').innerHTML = mostra.length ? mostra.map(t => {
+    const venc = t.d < HOJE, dias = diasDe(t.d);
+    return '<tr>' +
+      '<td>' + dtLongo(t.d) + '</td>' +
+      '<td class="nome">' + esc(t.sacado || '—') +
+        (t.cnpj ? '<span class="doc">' + esc(fmtDoc(t.cnpj)) + '</span>' : '') + '</td>' +
+      '<td>' + esc(t.banco) + '</td>' +
+      '<td>' + (t.carteira === 'descontada'
+        ? '<span class="tag desc">descontada</span>' : '<span class="tag">simples</span>') + '</td>' +
+      '<td>' + (venc
+        ? '<span class="tag venc">' + dias + (dias === 1 ? ' dia' : ' dias') + ' em atraso</span>'
+        : '<span class="tag">a vencer</span>') + '</td>' +
+      '<td class="n">' + money(t.v) + '</td></tr>';
+  }).join('') : '<tr><td colspan="6"><div class="vazio">Nenhum título com os filtros atuais.</div></td></tr>';
+
+  const simples = arr.filter(x => x.carteira === 'simples');
+  const desc = arr.filter(x => x.carteira === 'descontada');
+  $('#rtfoot-info').innerHTML = arr.length + (arr.length === 1 ? ' título · ' : ' títulos · ') +
+    '<b>' + money(somaV(simples)) + '</b> em carteira simples' +
+    (desc.length ? ' · ' + money(somaV(desc)) + ' descontada (já recebida)' : '') +
+    (arr.length > LIM ? ' · <b>a tabela mostra os ' + LIM + ' primeiros; o CSV sai completo</b>' : '');
+  window.__CSVREC__ = arr;
+}
+
+function csvRec() {
+  const arr = window.__CSVREC__ || [];
+  const linhas = [['Vencimento', 'Sacado', 'Documento', 'Fonte', 'Carteira', 'Situacao',
+                   'Dias em atraso', 'Valor', 'Como o CNPJ foi identificado']]
+    .concat(arr.map(t => [dtLongo(t.d), t.sacado || '', fmtDoc(t.cnpj), t.banco, t.carteira,
+      t.d < HOJE ? 'vencido' : 'a vencer', t.d < HOJE ? diasDe(t.d) : 0,
+      (t.v || 0).toFixed(2).replace('.', ','), t.fonte_raiz || 'não identificado']));
+  const txt = '﻿' + linhas.map(l =>
+    l.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([txt], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'artflex-receber-' + FR.de + '_a_' + FR.ate + '.csv';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function desenhaReceber(sel) { chartAging(sel); chartConc(sel); }
+
+function renderRec() {
+  if (!TIT.length) return;
+  document.querySelectorAll('#rsit .chip').forEach((b, i) =>
+    b.setAttribute('aria-pressed', String(FR.sit.has(SITS[i]))));
+  document.querySelectorAll('#rcart .chip').forEach((b, i) =>
+    b.setAttribute('aria-pressed', String(FR.cart.has(CARTS[i]))));
+  document.querySelectorAll('#rbanco .chip').forEach((b, i) =>
+    b.setAttribute('aria-pressed', String(FR.banco.has(BANCOS[i]))));
+
+  const sel = filtrarRec();
+  kpisRec(sel); alertasRec(sel); tabelaFontes(sel); tabelaRec(sel);
+  if (ABA === 'receber') desenhaReceber(sel);
+}
+
+/* ========================================================= resumo de caixa */
+function resumoKpis(f13) {
+  const sem = f13.sem;
+  const ent = sem.reduce((s, x) => s + x.ent, 0);
+  const sai = sem.reduce((s, x) => s + x.sai, 0);
+  const div = sem.reduce((s, x) => s + x.divida, 0);
+  const fim = sem[12].saldo, abre = saldoAbertura();
+
+  $('#r-pos').textContent = money(fim);
+  $('#r-pos').className = 'val' + (fim < 0 ? ' neg' : '');
+  $('#r-pos-sub').innerHTML = f13.neg
+    ? 'O caixa vira negativo já na semana de <b>' + dtLongo(f13.neg.ini) + '</b>.' +
+      (f13.temRec ? '' : ' <b>Sem entradas carregadas, isto é "quanto falta", não previsão.</b>')
+    : 'O saldo projetado não fica negativo em nenhuma das 13 semanas.';
+
+  $('#r-saldo').textContent = money(abre);
+  $('#r-saldo').className = 'val' + (abre < 0 ? ' neg' : '');
+  const nc = contasDoFiltro().length;
+  $('#r-saldo-sub').textContent = 'Somado de ' + nc + (nc === 1 ? ' conta ativa' : ' contas ativas');
+
+  $('#r-pagar').textContent = money(sai);
+  $('#r-pagar-sub').innerHTML = div
+    ? '<b>' + money(div) + '</b> são parcelas de dívida' : 'Contas a pagar do calendário';
+
+  $('#r-receber').textContent = money(ent);
+  $('#r-receber').className = 'val' + (ent ? '' : ' neg');
+  $('#r-receber-sub').innerHTML = ent
+    ? 'Recebimentos previstos no horizonte'
+    : '<b>Nenhuma entrada carregada</b> — veja o alerta abaixo';
+}
+
+/* Vencimentos da carteira simples nas proximas 13 semanas. A descontada fica
+   de fora: aquele dinheiro ja entrou, nao e previsao de entrada. */
+function chartPrev() {
+  const host = $('#ch-prev');
+  const simples = (DADOS.titulos || []).filter(t => t.carteira === 'simples');
+  if (!simples.length) {
+    host.innerHTML = '<div class="vazio">Nenhuma carteira de cobrança carregada.</div>';
+    $('#cd-prev').textContent = '';
+    return;
+  }
+  const segunda = s => { const x = D(s); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); };
+  const ini = segunda(HOJE);
+  const sem = [];
+  for (let i = 0; i < 13; i++) {
+    const a = addD(ini, i * 7);
+    sem.push({ ini: a, fim: addD(a, 6), v: 0, n: 0 });
+  }
+  const fim = sem[12].fim;
+  let venc = 0, nVenc = 0, depois = 0, nDepois = 0;
+  simples.forEach(t => {
+    if (t.d < ini) { venc += t.v; nVenc++; return; }
+    if (t.d > fim) { depois += t.v; nDepois++; return; }
+    const i = Math.floor(Math.round((D(t.d) - D(ini)) / 864e5) / 7);
+    sem[i].v += t.v; sem[i].n++;
+  });
+  const noHorizonte = sem.reduce((s, x) => s + x.v, 0);
+  const base = noHorizonte + venc;
+
+  const itens = [];
+  if (venc) itens.push({ k: 'Vencido até ' + ddmm(addD(ini, -1)), v: venc, n: nVenc, venc: 1 });
+  sem.forEach(s => itens.push({ k: ddmm(s.ini) + ' a ' + ddmm(s.fim), v: s.v, n: s.n }));
+  itens.forEach(x => x.pct = pcts(x.v, base));
+
+  $('#cd-prev').innerHTML = '<b>' + money(noHorizonte) + '</b> vence dentro das 13 semanas' +
+    (venc ? ', e <b class="neg">' + money(venc) + '</b> já venceu antes delas' : '') +
+    (depois ? ' · ' + money(depois) + ' vence depois do horizonte' : '') + '.';
+  barras('#ch-prev', itens, it => it.venc ? '--critical' : '--s4', 'A receber por semana');
+}
+
+/* ================================================================== abas ==
+   O SVG e dimensionado por clientWidth. Dentro de painel escondido isso e
+   zero, entao o desenho so acontece quando a aba fica visivel. */
+const ABAS = ['resumo', 'pagar', 'receber', 'diag'];
+let ABA = 'resumo';
+
+function mostraAba(nome) {
+  if (ABAS.indexOf(nome) < 0) nome = 'resumo';
+  const bt = $('#tab-' + nome);
+  if (!bt || bt.hidden) nome = 'resumo';
+  ABA = nome;
+  ABAS.forEach(a => {
+    const on = a === nome;
+    $('#pane-' + a).hidden = !on;
+    const b = $('#tab-' + a);
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+  });
+  try { localStorage.setItem('artflex-aba', nome); } catch (e) {}
+  escondeTip();
+  desenhaAba();
+}
+
+function desenhaAba() {
+  if (!DADOS) return;
+  if (ABA === 'resumo') { chart13(ULT13 || fluxo13()); chartPrev(); }
+  else if (ABA === 'pagar') desenhaPagar(filtrar());
+  else if (ABA === 'receber' && TIT.length) desenhaReceber(filtrarRec());
+}
+
 /* --------------------------------------------------------------- eventos */
 $('#de').addEventListener('change', e => { F.de = e.target.value || MIN; if (F.de > F.ate) { F.ate = F.de; $('#ate').value = F.ate; } render(); });
 $('#ate').addEventListener('change', e => { F.ate = e.target.value || MAX; if (F.ate < F.de) { F.de = F.ate; $('#de').value = F.de; } render(); });
@@ -1176,6 +1547,55 @@ document.querySelectorAll('#tbl th').forEach(th => th.addEventListener('click', 
   ordem = { k, dir: ordem.k === k ? -ordem.dir : (k === 'v' ? -1 : 1) };
   tabela(filtrar());
 }));
+
+/* ----------------------------------------------------------- abas: eventos */
+ABAS.forEach(a => {
+  $('#tab-' + a).addEventListener('click', () => mostraAba(a));
+});
+$('.tabs').addEventListener('keydown', ev => {
+  const passo = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+  if (!passo && ev.key !== 'Home' && ev.key !== 'End') return;
+  ev.preventDefault();
+  const vis = ABAS.filter(a => !$('#tab-' + a).hidden);
+  let i = vis.indexOf(ABA);
+  if (ev.key === 'Home') i = 0;
+  else if (ev.key === 'End') i = vis.length - 1;
+  else i = (i + passo + vis.length) % vis.length;
+  mostraAba(vis[i]);
+  $('#tab-' + vis[i]).focus();
+});
+
+/* ------------------------------------------ contas a receber: eventos */
+$('#rde').addEventListener('change', e => {
+  FR.de = e.target.value || RMIN;
+  if (FR.de > FR.ate) { FR.ate = FR.de; $('#rate').value = FR.ate; }
+  renderRec();
+});
+$('#rate').addEventListener('change', e => {
+  FR.ate = e.target.value || RMAX;
+  if (FR.ate < FR.de) { FR.de = FR.ate; $('#rde').value = FR.de; }
+  renderRec();
+});
+let debR;
+$('#rbusca').addEventListener('input', e => {
+  clearTimeout(debR);
+  debR = setTimeout(() => { FR.busca = e.target.value; renderRec(); }, 180);
+});
+$('#rlimpar').addEventListener('click', () => {
+  FR.de = RMIN; FR.ate = RMAX; FR.busca = '';
+  FR.sit.clear(); SITS.forEach(s => FR.sit.add(s));
+  FR.cart.clear(); CARTS.forEach(c => FR.cart.add(c));
+  FR.banco.clear(); BANCOS.forEach(b => FR.banco.add(b));
+  $('#rde').value = RMIN; $('#rate').value = RMAX; $('#rbusca').value = '';
+  renderRec();
+});
+$('#rcsv').addEventListener('click', csvRec);
+document.querySelectorAll('#tblrec th').forEach(th => th.addEventListener('click', () => {
+  const k = th.dataset.k;
+  ordemRec = { k, dir: ordemRec.k === k ? -ordemRec.dir : (k === 'v' ? -1 : 1) };
+  tabelaRec(filtrarRec());
+}));
+
 $('#tema').addEventListener('click', () => {
   const atual = document.documentElement.getAttribute('data-theme');
   const escuro = atual ? atual === 'dark'
@@ -1192,14 +1612,16 @@ try {
    pelo layout), não o alvo do desenho, para não realimentar o observer. */
 let rz, ultimaLarg = 0;
 function observaLargura() {
-  const alvo = document.querySelector('.chart-card');
+  // Observa o container das abas, nao um cartao: cartao dentro de painel
+  // escondido tem largura 0 e o observer nunca dispararia.
+  const alvo = $('#conteudo');
   if (!alvo || typeof ResizeObserver === 'undefined') return;
   new ResizeObserver(() => {
     const w = Math.round(alvo.clientWidth);
     if (w === ultimaLarg) return;
     ultimaLarg = w;
     clearTimeout(rz);
-    rz = setTimeout(() => { if (DADOS) desenhaGraficos(filtrar()); }, 140);
+    rz = setTimeout(desenhaAba, 140);
   }).observe(alvo);
 }
 
@@ -1210,16 +1632,26 @@ async function tentar(senha, silencioso) {
     err.textContent = 'Este navegador não expõe a API de criptografia. Abra a página por https:// ou use Chrome/Edge/Firefox atualizado.';
     return false;
   }
+  let d;
   try {
-    const d = await abrir(senha);
-    try { sessionStorage.setItem('artflex-pw', senha); } catch (e) {}
-    iniciar(d);
-    return true;
+    d = await abrir(senha);
   } catch (e) {
     if (!silencioso) err.textContent = 'Senha incorreta.';
     try { sessionStorage.removeItem('artflex-pw'); } catch (e2) {}
     return false;
   }
+  // A senha ja abriu os dados. Daqui para baixo, qualquer erro e de montagem
+  // do painel - e antes isso caia no mesmo catch e aparecia como "senha
+  // incorreta", mandando quem digitou certo tentar de novo para sempre.
+  try { sessionStorage.setItem('artflex-pw', senha); } catch (e) {}
+  try {
+    iniciar(d);
+  } catch (e) {
+    err.textContent = 'A senha abriu os dados, mas o painel falhou ao montar: ' + e.message;
+    console.error('falha ao montar o painel', e);
+    return false;
+  }
+  return true;
 }
 $('#entrar').addEventListener('click', () => {
   $('#erro').textContent = '';
