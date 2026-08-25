@@ -351,16 +351,25 @@ def ler_recebiveis(pasta):
         if not lidos:
             avisos.append("recebiveis: %s nao rendeu nenhum titulo" % nome)
 
-    # Fontes que nao trazem documento herdam a raiz pelo nome do sacado, para
-    # a concentracao por cliente enxergar todas as fontes como um risco so.
+    # Fontes que nao trazem documento herdam a raiz do CNPJ pelo nome do sacado.
+    #
+    # A comparacao e EXATA depois de normalizar (sem acento, sem pontuacao).
+    # Aproximacao por semelhanca foi testada em 25/08/2026 e reprovada: dos 4
+    # pares que ela apontou, todos os que o Andriel conferiu eram clientes
+    # DIFERENTES - "A C S DANTAS" com "G. P. DANTAS COMERCIO DE MOVEIS", e
+    # "J DULAR MOVEIS" com "A J L DULAR MOVEIS", ambos com 100% de confianca.
+    # Casar dois clientes errados nao da erro nenhum: so deixa o numero errado
+    # para sempre. Melhor ficar sem identificar do que identificar errado.
+    #
+    # A saida definitiva e o CNPJ vindo do cadastro de clientes do ERP.
     por_nome = {}
     for t in titulos:
         if t["raiz"]:
-            por_nome.setdefault(_chave(t["sacado"])[:22], t["raiz"])
+            por_nome.setdefault(_chave(t["sacado"]), t["raiz"])
     herdados = 0
     for t in titulos:
         if not t["raiz"]:
-            r = por_nome.get(_chave(t["sacado"])[:22])
+            r = por_nome.get(_chave(t["sacado"]))
             if r:
                 t["raiz"], t["cnpj_herdado"] = r, 1
                 herdados += 1
