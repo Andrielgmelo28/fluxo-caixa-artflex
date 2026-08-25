@@ -210,41 +210,99 @@ def _cnpj_raiz(doc):
     return d[:8] if len(d) >= 8 else d
 
 
+def _linhas_xls(caminho):
+    """Le .xls (xlrd) ou .xlsx (openpyxl) e devolve matriz de strings."""
+    if caminho.lower().endswith(".xlsx"):
+        wb = openpyxl.load_workbook(caminho, read_only=True, data_only=True)
+        ws = wb.worksheets[0]
+        return [["" if c is None else str(c).strip() for c in r]
+                for r in ws.iter_rows(values_only=True)]
+    import xlrd
+    sh = xlrd.open_workbook(caminho).sheet_by_index(0)
+    return [[str(sh.cell_value(i, j)).strip() for j in range(sh.ncols)]
+            for i in range(sh.nrows)]
+
+
+# Muitas fontes gravam o documento colado no nome do sacado:
+#   Vector     -> "10.320.837/0001-71-SANTA CRUZ"     (CNPJ inteiro)
+#   Credvale   -> "57.353.184 PABLO CAXIAS"           (so a raiz)
+_RE_CNPJ = re.compile(r"^\s*(\d{2}\.?\d{3}\.?\d{3})(?:/?\d{4}-?\d{2})?")
+
+
+def _extrai_doc(texto):
+    """Separa (documento, nome) quando o documento vem colado no nome."""
+    m = _RE_CNPJ.match(texto or "")
+    if not m:
+        return "", (texto or "").strip()
+    resto = (texto or "")[m.end():].lstrip(" -–")
+    return m.group(0).strip(), resto.strip() or (texto or "").strip()
+
+
+def _layout(linhas, nome):
+    """Descobre banco, modalidade e a linha de cabecalho da tabela.
+
+    O cabecalho e a primeira linha que traz, ao mesmo tempo, algo de
+    vencimento e algo de sacado/pagador. Isso vale para os quatro layouts e
+    nao quebra quando o banco mexe no numero de linhas do topo.
+    """
+    topo = _chave(" ".join(" ".join(r) for r in linhas[:10]))
+
+    i_cab = 0
+    for i, r in enumerate(linhas[:15]):
+        k = _chave(" ".join(r))
+        if "VENCIMENTO" in k and ("SACADO" in k or "PAGADOR" in k):
+            i_cab = i
+            break
+
+    # FIDC: tudo que esta la ja foi cedido, entao e sempre descontado.
+    if "CREDVALE" in topo:
+        return "CREDVALE", "FIDC - CEDIDO", i_cab
+    if "VECTOR" in topo:
+        return "VECTOR", "FIDC - CEDIDO", i_cab
+
+    # Santander grava a modalidade dentro do arquivo - melhor que o nome.
+    if "TIPO COBRANCA" in topo or "COD BENEFICIARIO" in topo:
+        modal = ""
+        for i, r in enumerate(linhas[:8]):
+            for j, c in enumerate(r):
+                if "TIPO COBRAN" in _chave(c) and i + 1 < len(linhas):
+                    if j < len(linhas[i + 1]):
+                        modal = linhas[i + 1][j]
+        return "SANTANDER", modal, i_cab
+
+    banco = nome.split()[0].upper() if nome.split() else "?"
+    return banco, ("DESCONTADO" if "DESCONTAD" in _chave(nome) else "SIMPLES"), i_cab
+
+
 def ler_recebiveis(pasta):
-    base = os.path.join(os.path.dirname(cfg("grupo.json")), "..", "recebiveis")
-    base = os.path.normpath(base)
+    base = os.path.normpath(os.path.join(
+        os.path.dirname(cfg("grupo.json")), "..", "recebiveis"))
     if not os.path.isdir(base):
         base = os.path.join(pasta, "recebiveis")
     if not os.path.isdir(base):
         return [], []
 
-    try:
-        import xlrd
-    except ImportError:
-        return [], ["recebiveis: instale o xlrd para ler .xls (pip install xlrd)"]
-
     titulos, avisos = [], []
     for nome in sorted(os.listdir(base)):
-        if not nome.lower().endswith((".xls", ".xlsx")):
+        if not nome.lower().endswith((".xls", ".xlsx")) or nome.startswith("~$"):
             continue
-        low = _chave(nome)
-        banco = nome.split()[0].upper() if nome.split() else "?"
-        carteira = "descontada" if "DESCONTAD" in low else "simples"
-        empresa_bruta = CARTEIRAS.get(banco)
-        if not empresa_bruta:
-            avisos.append("recebiveis: banco %r sem empresa no grupo.json "
-                          "(mapa 'carteiras') - arquivo %s ignorado" % (banco, nome))
-            continue
-        nome_emp, grupo_emp = entidade(empresa_bruta)
-
         try:
-            wb = xlrd.open_workbook(os.path.join(base, nome))
-            sh = wb.sheet_by_index(0)
+            linhas = _linhas_xls(os.path.join(base, nome))
         except Exception as e:
             avisos.append("recebiveis: nao consegui abrir %s (%s)" % (nome, e))
             continue
 
-        cab = [str(sh.cell_value(0, j)).strip().lower() for j in range(sh.ncols)]
+        banco, modal, i_cab = _layout(linhas, nome)
+        carteira = "simples" if _chave(modal).startswith("SIMPLES") or \
+            ("DESC" not in _chave(modal) and "CEDIDO" not in _chave(modal)) else "descontada"
+        empresa_bruta = CARTEIRAS.get(banco)
+        if not empresa_bruta:
+            avisos.append("recebiveis: banco %r sem empresa no mapa 'carteiras' "
+                          "do grupo.json - %s ignorado" % (banco, nome))
+            continue
+        nome_emp, grupo_emp = entidade(empresa_bruta)
+
+        cab = [_chave(c) for c in linhas[i_cab]]
 
         def col(*alvos):
             for a in alvos:
@@ -253,43 +311,66 @@ def ler_recebiveis(pasta):
                         return j
             return None
 
-        c_nome = col("nome do pagador", "pagador", "sacado", "cliente")
-        c_doc = col("cpf/cnpj", "cnpj", "documento do")
-        c_venc = col("vencimento")
-        c_val = col("valor")
-        c_nn = col("nosso n")
-        c_sn = col("seu n")
-        c_sit = col("situa")
-        c_emi = col("emiss")
-        if None in (c_venc, c_val):
-            avisos.append("recebiveis: %s sem coluna de vencimento ou valor" % nome)
+        c_nome = col("NOME DO PAGADOR", "PAGADOR", "SACADO", "CLIENTE")
+        c_doc = col("CPF CNPJ", "CNPJ", "DOCUMENTO DO")
+        c_venc = col("VENCIMENTO")
+        # "VALOR ABERTO" vem antes de "VALOR DE FACE": e o saldo, nao o original
+        c_val = col("VALOR ABERTO", "VLR ATUAL", "VALOR DO TITULO", "VALOR DE FACE", "VALOR")
+        c_nn = col("NOSSO N")
+        c_sn = col("SEU N", "N DOCUMENTO", "DOCUMENTO")
+        c_sit = col("SITUA", "STATUS")
+        c_emi = col("EMISS")
+        c_atr = col("ATRASO", "ATRS")
+        if c_venc is None or c_val is None:
+            avisos.append("recebiveis: %s sem coluna de vencimento ou valor "
+                          "(cabecalho na linha %d)" % (nome, i_cab + 1))
             continue
 
         lidos = 0
-        for i in range(1, sh.nrows):
-            venc = _data(str(sh.cell_value(i, c_venc)).strip())
-            try:
-                valor = float(sh.cell_value(i, c_val))
-            except (TypeError, ValueError):
-                valor = _valor(str(sh.cell_value(i, c_val)))
+        for r in linhas[i_cab + 1:]:
+            if len(r) <= max(c_venc, c_val):
+                continue
+            venc = _data(r[c_venc])
+            valor = _valor(r[c_val])
             if not venc or not valor:
-                continue                      # linha de total ou vazia
-            doc = str(sh.cell_value(i, c_doc)).strip() if c_doc is not None else ""
+                continue                       # total, rodape, legenda ou vazio
+            pega = lambda j: (r[j].strip() if j is not None and j < len(r) else "")
+            doc = pega(c_doc)
+            sacado = pega(c_nome)
+            if not doc:                        # documento colado no nome?
+                doc, sacado = _extrai_doc(sacado)
             titulos.append({
-                "d": venc, "v": round(valor, 2),
-                "e": nome_emp, "g": grupo_emp,
-                "carteira": carteira, "banco": banco,
-                "sacado": str(sh.cell_value(i, c_nome)).strip() if c_nome is not None else "",
-                "cnpj": doc, "raiz": _cnpj_raiz(doc),
-                "nn": str(sh.cell_value(i, c_nn)).strip() if c_nn is not None else "",
-                "sn": str(sh.cell_value(i, c_sn)).strip() if c_sn is not None else "",
-                "sit": str(sh.cell_value(i, c_sit)).strip() if c_sit is not None else "",
-                "emissao": _data(str(sh.cell_value(i, c_emi)).strip()) if c_emi is not None else None,
+                "d": venc, "v": valor, "e": nome_emp, "g": grupo_emp,
+                "carteira": carteira, "banco": banco, "modalidade": modal,
+                "sacado": sacado, "cnpj": doc, "raiz": _cnpj_raiz(doc),
+                "nn": pega(c_nn), "sn": pega(c_sn), "sit": pega(c_sit),
+                "emissao": _data(pega(c_emi)), "atraso": pega(c_atr),
                 "origem": nome,
             })
             lidos += 1
         if not lidos:
             avisos.append("recebiveis: %s nao rendeu nenhum titulo" % nome)
+
+    # Fontes que nao trazem documento herdam a raiz pelo nome do sacado, para
+    # a concentracao por cliente enxergar todas as fontes como um risco so.
+    por_nome = {}
+    for t in titulos:
+        if t["raiz"]:
+            por_nome.setdefault(_chave(t["sacado"])[:22], t["raiz"])
+    herdados = 0
+    for t in titulos:
+        if not t["raiz"]:
+            r = por_nome.get(_chave(t["sacado"])[:22])
+            if r:
+                t["raiz"], t["cnpj_herdado"] = r, 1
+                herdados += 1
+    sem = [t for t in titulos if not t["raiz"]]
+    if herdados:
+        avisos.append("recebiveis: %d titulos herdaram a raiz do CNPJ pelo nome" % herdados)
+    if sem:
+        nomes = sorted({t["sacado"] for t in sem})
+        avisos.append("recebiveis: %d titulos de %d sacados seguem sem CNPJ" %
+                      (len(sem), len(nomes)))
 
     titulos.sort(key=lambda t: (t["d"], t["sacado"]))
     return titulos, avisos

@@ -899,6 +899,16 @@ function montaDiag() {
     const totalTit = soma(TIT);
     const somaTop = top.reduce((s, c) => s + c.v, 0);
 
+    // por fonte, para enxergar onde está concentrado o risco de recompra
+    const fontes = {};
+    TIT.forEach(t => {
+      const k = t.banco + '|' + t.carteira;
+      if (!fontes[k]) fontes[k] = { banco: t.banco, cart: t.carteira, v: 0, n: 0, venc: 0 };
+      fontes[k].v += t.v; fontes[k].n++;
+      if (t.d < HOJE) fontes[k].venc += t.v;
+    });
+    const listaFontes = Object.values(fontes).sort((a, b) => b.v - a.v);
+
     cards.push({ nivel: venc(desc).length ? 'critical' : 'serious',
       tit: 'Carteira de recebíveis — o que é seu e o que já não é', txt:
       '<table class="mini">' +
@@ -911,7 +921,16 @@ function montaDiag() {
       (venc(desc).length
         ? '<tr><td>· <b>vencidos e não liquidados</b> — recompra a caminho</td><td class="neg">' +
           money(soma(venc(desc))) + ' · ' + venc(desc).length + '</td></tr>' : '') +
-      '</table>' +
+      '<tr><td><b>Carteira total</b></td><td><b>' + money(soma(TIT)) + ' · ' + TIT.length +
+      '</b></td></tr></table>' +
+      '<p style="margin-top:12px"><b>' + pc(soma(desc), soma(TIT)) + ' da carteira já foi ' +
+      'antecipada.</b> Antecipação de recebível é a maior fonte de financiamento do grupo — ' +
+      'maior que qualquer empréstimo — e não aparece como passivo em lugar nenhum.</p>' +
+      '<table class="mini"><tr><td><b>Onde está</b></td><td><b>Saldo · vencido</b></td></tr>' +
+      listaFontes.map(f => '<tr><td>' + esc(f.banco) + ' · ' + f.cart + ' <span style="color:var(--ink-muted)">' +
+        f.n + ' títulos</span></td><td>' + money(f.v) +
+        (f.venc ? ' · <span class="neg">' + money(f.venc) + '</span>' : '') +
+        '</td></tr>').join('') + '</table>' +
       '<p style="margin-top:12px"><b>Somar os dois seria contar o mesmo dinheiro duas vezes.</b> ' +
       'A descontada já virou caixa: o que resta dela não é direito a receber, é <b>risco de ' +
       'recompra</b>. Por isso ela fica fora do fluxo de 13 semanas — só a carteira simples ' +
@@ -928,9 +947,12 @@ function montaDiag() {
         c.cnpjs.size + ' CNPJs)</span>' : '') + '</td><td>' + money(c.v) + ' · ' +
         pc(c.v, totalTit) + '</td></tr>').join('') + '</table>' +
       '<p style="margin-top:12px">Os ' + top.length + ' maiores somam <b>' + pc(somaTop, totalTit) +
-      '</b> da carteira. Vale cruzar com os títulos cedidos aos FIDCs: <b>o mesmo cliente aparece ' +
-      'em mais de uma fonte</b>, e se parar de pagar você é atingido nos dois lugares ao mesmo ' +
-      'tempo.</p>' });
+      '</b> da carteira, e o maior sozinho é <b>' + pc(top[0].v, totalTit) + '</b>. ' +
+      '<b>Isso é concentração saudável</b> — nenhum cliente derruba a operação sozinho.</p>' +
+      '<p>O que exige atenção é outra coisa: <b>o mesmo cliente aparece em várias fontes ao ' +
+      'mesmo tempo</b>. Se ele parar de pagar, você é atingido no banco, na carteira descontada ' +
+      'e no FIDC de uma vez — e a recompra vem junto. Por isso a concentração tem que ser lida ' +
+      'somando todas as fontes, nunca uma de cada vez.</p>' });
   }
 
   const DIV = (DADOS.dividas || []).filter(d => d.tipo !== 'antecipacao');
