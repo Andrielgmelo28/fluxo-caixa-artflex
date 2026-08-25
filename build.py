@@ -66,6 +66,11 @@ if os.path.exists(_gp):
 EMPRESAS = _G.get("empresas", {})
 CONTAS = _G.get("contas", {})
 CONTAS_ENCERRADAS = set(_G.get("contas_encerradas", []))
+# Cadastros do ERP que nao devem entrar no de-para. Hoje sao dois fornecedores
+# antigos que ficaram com o CNPJ da propria Artflex: entrariam como se a
+# empresa fosse fornecedora de si mesma. O motivo de cada um esta no grupo.json.
+CADASTROS_IGNORADOS = {(str(x.get("origem", "")), str(x.get("codigo", "")))
+                       for x in _G.get("cadastros_ignorados", [])}
 
 
 def _chave(s):
@@ -73,6 +78,33 @@ def _chave(s):
     s = unicodedata.normalize("NFKD", (s or "").strip().upper())
     s = "".join(c for c in s if not unicodedata.combining(c))
     return re.sub(r"[^A-Z0-9]+", " ", s).strip()
+
+
+def _chave_dura(s):
+    """Chave que sobrevive ao acento perdido na exportacao do banco.
+
+    O Santander exporta trocando a letra acentuada por espaco: "SEBASTIAO"
+    chega como "SEBASTI O", "GONCALVES" como "GON ALVES", "MOVEIS" como
+    "M VEIS". Tirar o acento nao resolve, porque a letra nao virou outra -
+    ela sumiu.
+
+    Entao esta chave APAGA a letra acentuada dos dois lados e joga fora todo
+    separador. "SEBASTIAO" (com til) e "SEBASTI O" viram os dois SEBASTIO.
+
+    E lossy de proposito, entao so serve de segunda tentativa, e so quando a
+    chave leva a um unico CNPJ. Chave ambigua e descartada.
+    """
+    d = unicodedata.normalize("NFD", (s or "").strip().upper())
+    fora, i = [], 0
+    while i < len(d):
+        if i + 1 < len(d) and unicodedata.combining(d[i + 1]):
+            i += 1                                  # pula a letra de base
+            while i < len(d) and unicodedata.combining(d[i]):
+                i += 1                              # e as marcas dela
+            continue
+        fora.append(d[i])
+        i += 1
+    return re.sub(r"[^A-Z0-9]+", "", "".join(fora))
 
 
 # Aceita o nome cru da planilha e tambem o de exibicao.
@@ -224,8 +256,8 @@ def _linhas_xls(caminho):
 
 
 # Muitas fontes gravam o documento colado no nome do sacado:
-#   Vector     -> "10.320.837/0001-71-SANTA CRUZ"     (CNPJ inteiro)
-#   Credvale   -> "57.353.184 PABLO CAXIAS"           (so a raiz)
+#   Vector     -> "12.345.678/0001-99-NOME DO SACADO"   (CNPJ inteiro)
+#   Credvale   -> "12.345.678 NOME DO SACADO"           (so a raiz)
 _RE_CNPJ = re.compile(r"^\s*(\d{2}\.?\d{3}\.?\d{3})(?:/?\d{4}-?\d{2})?")
 
 
@@ -272,6 +304,111 @@ def _layout(linhas, nome):
 
     banco = nome.split()[0].upper() if nome.split() else "?"
     return banco, ("DESCONTADO" if "DESCONTAD" in _chave(nome) else "SIMPLES"), i_cab
+
+
+# Cadastro de pessoas do ERP Tek-System. E a saida definitiva para o sacado
+# que chega sem CNPJ: em vez de adivinhar pelo nome parecido, pergunta ao
+# cadastro onde o titulo nasceu.
+#
+# Como exportar (vale para Cliente e para Fornecedor):
+#   Cadastros > Pessoas > {Cliente|Fornecedor} > botao Relatorio
+#   > engrenagem > Modo de Saida > Analisar em Cubo > Previsao
+#   > aba Dados Brutos > botao direito > Exportar Dados > Para Arquivo > CSV
+#
+# Sai em latin-1, separado por virgula.
+_CAD_ARQUIVOS = [("clientes", "clientes-teksystem.csv"),
+                 ("fornecedores", "fornecedores-teksystem.csv")]
+_CAD_DOC = ["CNPJCEI_PESSOA_JUR", "CNPJ_PESSOA_END", "CPF_PESSOA_FIS"]
+_CAD_NOME = ["RAZAOSOCIAL_PESSOA", "NOMEFANTASIA_PESSOA"]
+AMBIGUO = object()          # sentinela: nome que leva a mais de uma raiz
+# Prefixo menor que isso casa com gente demais para servir de prova.
+_PREFIXO_MIN = 12
+
+
+def ler_cadastro():
+    """Indexa razao social e nome fantasia -> documento.
+
+    Devolve (exato, duro, avisos). Os bancos gravam ora a razao social ora o
+    nome fantasia, entao os dois entram no indice.
+
+    A ambiguidade e julgada pela RAIZ do CNPJ, nao pelo documento inteiro.
+    Matriz e filial sao cadastros diferentes com o mesmo nome - "GINALDO DA
+    NOBREGA GONCALVES" aparece tres vezes, uma por filial. Para o de-para isso
+    nao e ambiguidade nenhuma: os tres sao o mesmo risco de credito. So quando
+    as raizes divergem e que a chave e jogada fora, e ai vai fora dos dois
+    indices: se o cadastro nao sabe dizer quem e, o build nao pode fingir que
+    sabe.
+
+    A terceira saida e a lista crua (chave dura, raiz), usada para fechar o
+    nome que o banco truncou.
+    """
+    exato, duro, lista, avisos = {}, {}, [], []
+    lidos = ignorados = 0
+    for origem, arquivo in _CAD_ARQUIVOS:
+        caminho = cfg(arquivo)
+        if not os.path.exists(caminho):
+            continue
+        linhas = []
+        for enc in ("utf-8-sig", "latin-1"):
+            try:
+                with open(caminho, encoding=enc, newline="") as f:
+                    linhas = list(csv.DictReader(f, delimiter=","))
+                if linhas and len(linhas[0]) > 5:
+                    break
+            except Exception:
+                continue
+        if not linhas:
+            avisos.append("cadastro: nao consegui ler %s" % arquivo)
+            continue
+
+        for r in linhas:
+            cod = (r.get("CODIGO_PESSOA") or "").strip()
+            if cod in ("", "0"):
+                continue                          # linha "INDEFINIDA" do topo
+            if (origem, cod) in CADASTROS_IGNORADOS:
+                ignorados += 1
+                continue
+            doc = ""
+            for c in _CAD_DOC:
+                d = re.sub(r"[^0-9]", "", r.get(c) or "")
+                if len(d) in (11, 14):
+                    doc = d
+                    break
+            if not doc:
+                continue                          # importador estrangeiro
+            lidos += 1
+            raiz = _cnpj_raiz(doc)
+            for c in _CAD_NOME:
+                nome = (r.get(c) or "").strip()
+                if not nome:
+                    continue
+                kd = _chave_dura(nome)
+                if kd:
+                    lista.append((kd, raiz))
+                for indice, chave in ((exato, _chave(nome)), (duro, kd)):
+                    if not chave:
+                        continue
+                    antigo = indice.get(chave)
+                    if antigo is None:
+                        indice[chave] = (raiz, doc)
+                    elif antigo == AMBIGUO:
+                        pass
+                    elif antigo[0] != raiz:
+                        indice[chave] = AMBIGUO
+                    elif antigo[1] != doc:
+                        indice[chave] = (raiz, "")   # mesma raiz, filial outra
+
+    for indice in (exato, duro):
+        for k in [k for k, v in indice.items() if v is AMBIGUO]:
+            del indice[k]
+
+    if lidos:
+        avisos.append("cadastro: %d pessoas do ERP com documento, %d nomes "
+                      "indexados" % (lidos, len(exato)))
+    if ignorados:
+        avisos.append("cadastro: %d cadastros ignorados por configuracao"
+                      % ignorados)
+    return exato, duro, lista, avisos
 
 
 def ler_recebiveis(pasta):
@@ -351,31 +488,76 @@ def ler_recebiveis(pasta):
         if not lidos:
             avisos.append("recebiveis: %s nao rendeu nenhum titulo" % nome)
 
-    # Fontes que nao trazem documento herdam a raiz do CNPJ pelo nome do sacado.
+    # Sacado que chegou sem CNPJ: tres tentativas, todas por igualdade exata
+    # depois de normalizar. Nenhuma delas e por semelhanca.
     #
-    # A comparacao e EXATA depois de normalizar (sem acento, sem pontuacao).
     # Aproximacao por semelhanca foi testada em 25/08/2026 e reprovada: dos 4
     # pares que ela apontou, todos os que o Andriel conferiu eram clientes
-    # DIFERENTES - "A C S DANTAS" com "G. P. DANTAS COMERCIO DE MOVEIS", e
-    # "J DULAR MOVEIS" com "A J L DULAR MOVEIS", ambos com 100% de confianca.
+    # DIFERENTES - um par com o mesmo sobrenome em empresas sem relacao, outro
+    # com a mesma razao social separada so por iniciais no comeco. Os dois
+    # foram apontados com 100% de confianca.
+    #
     # Casar dois clientes errados nao da erro nenhum: so deixa o numero errado
     # para sempre. Melhor ficar sem identificar do que identificar errado.
-    #
-    # A saida definitiva e o CNPJ vindo do cadastro de clientes do ERP.
+    for t in titulos:
+        t["fonte_raiz"] = "arquivo" if t["raiz"] else ""
+
+    # 1. Outro titulo, de qualquer carteira, com o mesmo nome e com CNPJ.
     por_nome = {}
     for t in titulos:
         if t["raiz"]:
             por_nome.setdefault(_chave(t["sacado"]), t["raiz"])
-    herdados = 0
     for t in titulos:
         if not t["raiz"]:
             r = por_nome.get(_chave(t["sacado"]))
             if r:
-                t["raiz"], t["cnpj_herdado"] = r, 1
-                herdados += 1
+                t["raiz"], t["fonte_raiz"] = r, "outro titulo"
+
+    # 2 e 3. O cadastro do ERP - primeiro pelo nome exato, depois pela chave
+    # que tolera o acento que o Santander comeu.
+    cad_exato, cad_duro, cad_lista, cad_avisos = ler_cadastro()
+    avisos.extend(cad_avisos)
+    for t in titulos:
+        if t["raiz"]:
+            continue
+        achado = cad_exato.get(_chave(t["sacado"]))
+        fonte = "cadastro do ERP"
+        if not achado:
+            achado = cad_duro.get(_chave_dura(t["sacado"]))
+            fonte = "cadastro do ERP (acento perdido)"
+        if achado:
+            raiz, doc = achado
+            t["raiz"], t["fonte_raiz"] = raiz, fonte
+            if doc:
+                t["cnpj"] = doc
+
+    # 4. Nome truncado pelo banco. O Santander e a Credvale cortam em ~40
+    # caracteres, entao "NOGUEIRA COMERCIO VAREJISTA DE MOVEIS LT" nunca vai
+    # bater com "...LTDA" por igualdade.
+    #
+    # Isto continua NAO sendo semelhanca: exige que o nome do banco seja o
+    # comeco literal do nome do cadastro, e que todos os cadastros que comecam
+    # assim tenham a MESMA raiz. Se duas empresas diferentes compartilham o
+    # prefixo, ninguem e escolhido.
+    for t in titulos:
+        if t["raiz"]:
+            continue
+        k = _chave_dura(t["sacado"])
+        if len(k) < _PREFIXO_MIN:
+            continue
+        raizes = {r for kd, r in cad_lista if kd.startswith(k)}
+        if len(raizes) == 1:
+            t["raiz"] = raizes.pop()
+            t["fonte_raiz"] = "cadastro do ERP (nome truncado)"
+
+    conta = {}
+    for t in titulos:
+        if t["raiz"] and t["fonte_raiz"] != "arquivo":
+            conta[t["fonte_raiz"]] = conta.get(t["fonte_raiz"], 0) + 1
+    for fonte in sorted(conta, key=lambda k: -conta[k]):
+        avisos.append("recebiveis: %d titulos identificados por %s"
+                      % (conta[fonte], fonte))
     sem = [t for t in titulos if not t["raiz"]]
-    if herdados:
-        avisos.append("recebiveis: %d titulos herdaram a raiz do CNPJ pelo nome" % herdados)
     if sem:
         nomes = sorted({t["sacado"] for t in sem})
         avisos.append("recebiveis: %d titulos de %d sacados seguem sem CNPJ" %
