@@ -97,6 +97,29 @@ ignoradas com aviso.
 Sem esse arquivo, o fluxo de 13 semanas roda só com saídas — e o painel diz isso
 explicitamente, para o saldo projetado não ser lido como previsão.
 
+### `recebiveis/` — carteira de cobrança dos bancos
+
+Solte aqui os `.xls` exportados da consulta de títulos do banco. O leitor espera as
+colunas `Nome do Pagador`, `CPF/CNPJ do Pagador`, `Vencimento`, `Nosso Número`,
+`Seu Número`, `Situação` e `Valor` — o layout padrão do Banco do Brasil.
+
+**A separação vem do nome do arquivo.** Se contiver *descontad*, os títulos são
+tratados como já antecipados; qualquer outro nome é carteira simples. O banco sai da
+primeira palavra, e a empresa dona vem do mapa `carteiras` do `grupo.json`.
+
+```
+BB boletos carteira 25.08.2026.xls      -> simples
+BB boletos descontado 25.08.2026.xls    -> descontada
+```
+
+Por que a distinção importa: **título descontado já virou dinheiro.** Ele não é
+entrada futura — é risco de recompra, porque se o sacado não pagar, a empresa devolve.
+Só a carteira simples entra no fluxo de 13 semanas. Somar os dois contaria o mesmo
+dinheiro duas vezes.
+
+O painel agrupa a concentração de clientes pela **raiz do CNPJ**: matriz e filial do
+mesmo grupo são o mesmo risco de crédito.
+
 ### `dividas.csv` — empréstimos e antecipações
 
 ```

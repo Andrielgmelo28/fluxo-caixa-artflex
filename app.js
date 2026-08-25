@@ -880,6 +880,59 @@ function montaDiag() {
       'vive só na geração do painel, em <code>build.py</code>, e pode ser desfeito a qualquer momento.</p>' });
   }
 
+  const TIT = DADOS.titulos || [];
+  if (TIT.length) {
+    const simples = TIT.filter(t => t.carteira === 'simples');
+    const desc = TIT.filter(t => t.carteira === 'descontada');
+    const soma = a => a.reduce((s, t) => s + t.v, 0);
+    const venc = a => a.filter(t => t.d < HOJE);
+    const pc = (a, b) => b ? (a / b * 100).toFixed(1).replace('.', ',') + '%' : '—';
+
+    // concentração pela RAIZ do CNPJ: matriz e filial são o mesmo risco
+    const porRaiz = {};
+    TIT.forEach(t => {
+      const k = t.raiz || t.sacado;
+      if (!porRaiz[k]) porRaiz[k] = { nome: t.sacado, v: 0, n: 0, cnpjs: new Set() };
+      porRaiz[k].v += t.v; porRaiz[k].n++; porRaiz[k].cnpjs.add(t.cnpj);
+    });
+    const top = Object.values(porRaiz).sort((a, b) => b.v - a.v).slice(0, 6);
+    const totalTit = soma(TIT);
+    const somaTop = top.reduce((s, c) => s + c.v, 0);
+
+    cards.push({ nivel: venc(desc).length ? 'critical' : 'serious',
+      tit: 'Carteira de recebíveis — o que é seu e o que já não é', txt:
+      '<table class="mini">' +
+      '<tr><td><b>Carteira simples</b> — título seu; se o cliente não pagar, você não recebe</td>' +
+      '<td>' + money(soma(simples)) + ' · ' + simples.length + '</td></tr>' +
+      '<tr><td>· dos quais <b>vencidos</b></td><td class="neg">' + money(soma(venc(simples))) +
+      ' · ' + pc(soma(venc(simples)), soma(simples)) + '</td></tr>' +
+      '<tr><td><b>Descontada</b> — o dinheiro já entrou; se o cliente não pagar, <b>você devolve</b></td>' +
+      '<td>' + money(soma(desc)) + ' · ' + desc.length + '</td></tr>' +
+      (venc(desc).length
+        ? '<tr><td>· <b>vencidos e não liquidados</b> — recompra a caminho</td><td class="neg">' +
+          money(soma(venc(desc))) + ' · ' + venc(desc).length + '</td></tr>' : '') +
+      '</table>' +
+      '<p style="margin-top:12px"><b>Somar os dois seria contar o mesmo dinheiro duas vezes.</b> ' +
+      'A descontada já virou caixa: o que resta dela não é direito a receber, é <b>risco de ' +
+      'recompra</b>. Por isso ela fica fora do fluxo de 13 semanas — só a carteira simples ' +
+      'entra como entrada futura.</p>' +
+      (venc(simples).length
+        ? '<p><b>' + pc(soma(venc(simples)), soma(simples)) + ' da carteira simples está vencida</b> (' +
+          venc(simples).length + ' de ' + simples.length + ' títulos, ' + money(soma(venc(simples))) +
+          '). Não é ruído de calendário — é boa parte da explicação da pressão de caixa e da ' +
+          'dependência de antecipação.</p>' : '') +
+      '<p style="margin-top:12px"><b>Concentração por cliente</b>, agrupada pela raiz do CNPJ — ' +
+      'matriz e filial do mesmo grupo são o mesmo risco:</p>' +
+      '<table class="mini">' + top.map(c =>
+        '<tr><td>' + esc(c.nome) + (c.cnpjs.size > 1 ? ' <span style="color:var(--ink-muted)">(' +
+        c.cnpjs.size + ' CNPJs)</span>' : '') + '</td><td>' + money(c.v) + ' · ' +
+        pc(c.v, totalTit) + '</td></tr>').join('') + '</table>' +
+      '<p style="margin-top:12px">Os ' + top.length + ' maiores somam <b>' + pc(somaTop, totalTit) +
+      '</b> da carteira. Vale cruzar com os títulos cedidos aos FIDCs: <b>o mesmo cliente aparece ' +
+      'em mais de uma fonte</b>, e se parar de pagar você é atingido nos dois lugares ao mesmo ' +
+      'tempo.</p>' });
+  }
+
   const DIV = (DADOS.dividas || []).filter(d => d.tipo !== 'antecipacao');
   const ANT = (DADOS.dividas || []).filter(d => d.tipo === 'antecipacao');
   const aa = t => ((Math.pow(1 + t / 100, 12) - 1) * 100).toFixed(1).replace('.', ',');

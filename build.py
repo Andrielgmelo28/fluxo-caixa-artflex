@@ -190,6 +190,111 @@ def _valor(v):
         return None
 
 
+# --------------------------------------------------------------- recebiveis
+# Carteira de cobranca exportada dos bancos, em recebiveis/*.xls|xlsx.
+#
+# A separacao que importa esta no nome do arquivo:
+#   ...descontad...  -> titulo JA ANTECIPADO. O dinheiro entrou. Se o sacado
+#                       nao pagar, a empresa RECOMPRA. Nao e entrada futura,
+#                       e risco de recompra
+#   qualquer outro   -> carteira simples. Titulo ainda a receber
+#
+# O banco sai da primeira palavra do nome. A empresa dona vem do mapa
+# "carteiras" do grupo.json.
+CARTEIRAS = _G.get("carteiras", {})
+
+
+def _cnpj_raiz(doc):
+    """Os 8 primeiros digitos. Matriz e filial do mesmo grupo compartilham."""
+    d = re.sub(r"[^0-9]", "", doc or "")
+    return d[:8] if len(d) >= 8 else d
+
+
+def ler_recebiveis(pasta):
+    base = os.path.join(os.path.dirname(cfg("grupo.json")), "..", "recebiveis")
+    base = os.path.normpath(base)
+    if not os.path.isdir(base):
+        base = os.path.join(pasta, "recebiveis")
+    if not os.path.isdir(base):
+        return [], []
+
+    try:
+        import xlrd
+    except ImportError:
+        return [], ["recebiveis: instale o xlrd para ler .xls (pip install xlrd)"]
+
+    titulos, avisos = [], []
+    for nome in sorted(os.listdir(base)):
+        if not nome.lower().endswith((".xls", ".xlsx")):
+            continue
+        low = _chave(nome)
+        banco = nome.split()[0].upper() if nome.split() else "?"
+        carteira = "descontada" if "DESCONTAD" in low else "simples"
+        empresa_bruta = CARTEIRAS.get(banco)
+        if not empresa_bruta:
+            avisos.append("recebiveis: banco %r sem empresa no grupo.json "
+                          "(mapa 'carteiras') - arquivo %s ignorado" % (banco, nome))
+            continue
+        nome_emp, grupo_emp = entidade(empresa_bruta)
+
+        try:
+            wb = xlrd.open_workbook(os.path.join(base, nome))
+            sh = wb.sheet_by_index(0)
+        except Exception as e:
+            avisos.append("recebiveis: nao consegui abrir %s (%s)" % (nome, e))
+            continue
+
+        cab = [str(sh.cell_value(0, j)).strip().lower() for j in range(sh.ncols)]
+
+        def col(*alvos):
+            for a in alvos:
+                for j, c in enumerate(cab):
+                    if a in c:
+                        return j
+            return None
+
+        c_nome = col("nome do pagador", "pagador", "sacado", "cliente")
+        c_doc = col("cpf/cnpj", "cnpj", "documento do")
+        c_venc = col("vencimento")
+        c_val = col("valor")
+        c_nn = col("nosso n")
+        c_sn = col("seu n")
+        c_sit = col("situa")
+        c_emi = col("emiss")
+        if None in (c_venc, c_val):
+            avisos.append("recebiveis: %s sem coluna de vencimento ou valor" % nome)
+            continue
+
+        lidos = 0
+        for i in range(1, sh.nrows):
+            venc = _data(str(sh.cell_value(i, c_venc)).strip())
+            try:
+                valor = float(sh.cell_value(i, c_val))
+            except (TypeError, ValueError):
+                valor = _valor(str(sh.cell_value(i, c_val)))
+            if not venc or not valor:
+                continue                      # linha de total ou vazia
+            doc = str(sh.cell_value(i, c_doc)).strip() if c_doc is not None else ""
+            titulos.append({
+                "d": venc, "v": round(valor, 2),
+                "e": nome_emp, "g": grupo_emp,
+                "carteira": carteira, "banco": banco,
+                "sacado": str(sh.cell_value(i, c_nome)).strip() if c_nome is not None else "",
+                "cnpj": doc, "raiz": _cnpj_raiz(doc),
+                "nn": str(sh.cell_value(i, c_nn)).strip() if c_nn is not None else "",
+                "sn": str(sh.cell_value(i, c_sn)).strip() if c_sn is not None else "",
+                "sit": str(sh.cell_value(i, c_sit)).strip() if c_sit is not None else "",
+                "emissao": _data(str(sh.cell_value(i, c_emi)).strip()) if c_emi is not None else None,
+                "origem": nome,
+            })
+            lidos += 1
+        if not lidos:
+            avisos.append("recebiveis: %s nao rendeu nenhum titulo" % nome)
+
+    titulos.sort(key=lambda t: (t["d"], t["sacado"]))
+    return titulos, avisos
+
+
 def ler_recebimentos(pasta):
     caminho = cfg("recebimentos.csv")
     if not os.path.exists(caminho):
@@ -394,6 +499,14 @@ def extrair(caminho):
 
     pasta = os.path.dirname(os.path.abspath(__file__))
     recebimentos, avisos_rec = ler_recebimentos(pasta)
+    titulos, avisos_tit = ler_recebiveis(pasta)
+    # Carteira simples e entrada futura. Descontada NAO e: o dinheiro ja
+    # entrou, e o que sobra e o risco de recompra no vencimento.
+    for t in titulos:
+        if t['carteira'] == 'simples':
+            recebimentos.append({'d': t['d'], 'e': t['e'], 'g': t['g'],
+                                 'v': t['v'], 'n': 'Boleto ' + t['banco'],
+                                 's': t['sacado'], 'b': t['banco'], 'doc': t['nn']})
 
     # notas.json: analise em prosa que NAO pode ficar no codigo, porque o
     # repositorio e publico. Entra cifrada no dados.js, como o resto.
@@ -414,6 +527,8 @@ def extrair(caminho):
     return {
         "pagamentos": pagamentos,
         "recebimentos": recebimentos,
+        "titulos": titulos,
+        "avisos_titulos": avisos_tit,
         # Parcelas de emprestimo ficam FORA de "pagamentos" de proposito: elas
         # nao vem da planilha e nao podem entrar na conferencia dos subtotais.
         # O fluxo de caixa soma as duas listas.
@@ -504,7 +619,8 @@ def main():
     else:
         print("    recebimentos           nenhum - crie recebimentos.csv "
               "(modelo em recebimentos-modelo.csv)")
-    for a in dados["avisos_recebimentos"] + dados["avisos_dividas"]:
+    for a in (dados["avisos_recebimentos"] + dados["avisos_dividas"]
+              + dados["avisos_titulos"]):
         print(f"    !! {a}")
     if dados["dividas"]:
         banc = [d for d in dados["dividas"] if d["tipo"] != "antecipacao"]
