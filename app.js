@@ -166,9 +166,11 @@ function iniciar(d) {
   $('#gate').hidden = true; $('#gate').style.display = 'none';
   $('#app').hidden = false;
 
-  let aba = 'resumo';
-  try { aba = localStorage.getItem('artflex-aba') || 'resumo'; } catch (e) {}
-  mostraAba(aba);
+  let aba = location.hash.slice(1);
+  if (ABAS.indexOf(aba) < 0) {
+    try { aba = localStorage.getItem('artflex-aba') || 'resumo'; } catch (e) { aba = 'resumo'; }
+  }
+  mostraAba(aba, true);
   render();
   observaLargura();
 }
@@ -345,13 +347,16 @@ function alertas(k, sel, f13) {
    Não obedece ao filtro de datas (tem horizonte próprio), mas obedece ao
    recorte por empresa e bloco. Contas vencidas antes da semana 1 entram nela:
    atraso não some do caixa, só muda de lugar. */
+let RECVENC = { v: 0, n: 0 };      // recebivel ja vencido, fora da projecao
+
 function fluxo13() {
   const segunda = s => { const x = D(s); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); };
   const ini = segunda(HOJE);
   const sem = [];
   for (let i = 0; i < 13; i++) {
     const a = addD(ini, i * 7);
-    sem.push({ ini: a, fim: addD(a, 6), ent: 0, sai: 0, atraso: 0, divida: 0, nEnt: 0, nSai: 0 });
+    sem.push({ ini: a, fim: addD(a, 6), ent: 0, sai: 0, atraso: 0, divida: 0,
+               tit: 0, nEnt: 0, nSai: 0 });
   }
   const fim = sem[12].fim;
   const idx = s => Math.floor(Math.round((D(s) - D(ini)) / 864e5) / 7);
@@ -368,11 +373,23 @@ function fluxo13() {
     const i = idx(p.d);
     sem[i].sai += p.v; sem[i].divida += p.v; sem[i].nSai++;
   });
+  // REC ja traz a carteira simples: o build.py injeta cada titulo simples
+  // como recebimento (a descontada nunca, porque aquele dinheiro ja entrou e
+  // some-la contaria o mesmo dinheiro duas vezes).
+  //
+  // O recebivel VENCIDO nao entra na projecao, e a assimetria com os
+  // pagamentos e proposital. Conta a pagar atrasada e divida de hoje, entao
+  // cai na semana 1. Recebivel atrasado nao virou dinheiro so porque a data
+  // passou - jogar na semana 1 inventava um caixa que ninguem recebeu, e era
+  // exatamente o que esta linha fazia antes.
+  RECVENC = { v: 0, n: 0 };
   REC.filter(daEntidade).forEach(r => {
     if (!r.v) return;
-    if (r.d < ini) { sem[0].ent += r.v; sem[0].nEnt++; return; }
+    if (r.d < ini) { RECVENC.v += r.v; RECVENC.n++; return; }
     if (r.d > fim) return;
-    const i = idx(r.d); sem[i].ent += r.v; sem[i].nEnt++;
+    const i = idx(r.d);
+    sem[i].ent += r.v; sem[i].nEnt++;
+    if (r.b) sem[i].tit += r.v;              // veio de carteira de cobranca
   });
 
   let saldo = saldoAbertura();
@@ -459,15 +476,21 @@ let ULT13 = null;
 
 function render13() {
   const sem = fluxo13();
+  const temTit = sem.some(s => s.tit > 0);
   const temRec = REC.filter(daEntidade).length > 0;
   const totalSai = sem.reduce((s, x) => s + x.sai, 0);
   const totalEnt = sem.reduce((s, x) => s + x.ent, 0);
   const neg = sem.find(s => s.saldo < 0);
   const comMov = sem.filter(s => s.sai > 0 || s.ent > 0).length;
 
+  const totalTit = sem.reduce((s, x) => s + x.tit, 0);
   $('#desc13').innerHTML =
     'Horizonte de tesouraria a partir da semana de ' + dtLongo(sem[0].ini) +
-    '. Não segue o filtro de datas acima — segue o de empresa e bloco.' +
+    '. Segue o filtro de empresa e bloco, não o de datas — esta seção tem horizonte próprio.' +
+    (temTit ? ' As entradas são <b>vencimentos da carteira simples</b>: previsão, não confirmação.' : '') +
+    (RECVENC.v ? ' <b class="neg">' + money(RECVENC.v) + '</b> em ' + RECVENC.n +
+      ' títulos já venceram e <b>não estão somados aqui</b> — recebível atrasado não virou ' +
+      'dinheiro só porque a data passou.' : '') +
     (temRec ? '' : ' <b style="color:var(--critical)">Nenhum recebimento carregado:' +
       ' a linha de entradas está zerada, então o saldo abaixo é "quanto falta", não previsão.</b>');
 
@@ -1148,8 +1171,7 @@ function render() {
   tabela(sel);
   renderRec();
 
-  $('#cnt-pagar').textContent = PAG.length;
-  if (TIT.length) $('#cnt-receber').textContent = TIT.length;
+  valoresDasAbas(f13);
 
   desenhaAba();                      // só a aba visível desenha
 }
@@ -1299,12 +1321,19 @@ function alertasRec(sel) {
    descontado ja virou caixa e a leitura dele e outra (risco de recompra). */
 function chartAging(sel) {
   const simples = sel.filter(t => t.carteira === 'simples');
+  // Faixa de atraso e escala ORDENADA, nao categoria: 31-60 nao e "outra
+  // coisa" que 1-30, e mais do mesmo. Por isso um hue so, claro->escuro.
+  // Antes eram cinco cores de serie diferentes - um arco-iris que dizia ao
+  // leitor que as faixas nao tinham relacao entre si.
+  //
+  // "A vencer" fica em cinza de propósito: e contexto, nao e o assunto. O
+  // assunto e a cauda vencida.
   const FAIXAS = [
-    ['A vencer', t => t.d >= HOJE, '--s4'],
-    ['1 a 30 dias', t => { const x = diasDe(t.d); return x >= 1 && x <= 30; }, '--s1'],
-    ['31 a 60 dias', t => { const x = diasDe(t.d); return x >= 31 && x <= 60; }, '--s3'],
-    ['61 a 90 dias', t => { const x = diasDe(t.d); return x >= 61 && x <= 90; }, '--serious'],
-    ['Mais de 90 dias', t => diasDe(t.d) > 90, '--critical'],
+    ['A vencer', t => t.d >= HOJE, '--brand-grey'],
+    ['1 a 30 dias', t => { const x = diasDe(t.d); return x >= 1 && x <= 30; }, '--o1'],
+    ['31 a 60 dias', t => { const x = diasDe(t.d); return x >= 31 && x <= 60; }, '--o2'],
+    ['61 a 90 dias', t => { const x = diasDe(t.d); return x >= 61 && x <= 90; }, '--o3'],
+    ['Mais de 90 dias', t => diasDe(t.d) > 90, '--o4'],
   ];
   const total = somaV(simples);
   const itens = FAIXAS.map(f => {
@@ -1339,7 +1368,7 @@ function chartConc(sel) {
     ? todos.length + ' clientes. Os 10 maiores somam <b>' + pcts(soma10, total) +
       '</b> e o maior sozinho é <b>' + pcts(top[0].v, total) + '</b>.'
     : 'Sem títulos nos filtros atuais.';
-  barras('#ch-conc', top, () => '--s2', 'Concentração por cliente');
+  barras('#ch-conc', top, () => '--s1', 'Concentração por cliente');
 }
 
 function tabelaFontes(sel) {
@@ -1460,43 +1489,118 @@ function resumoKpis(f13) {
     : '<b>Nenhuma entrada carregada</b> — veja o alerta abaixo';
 }
 
-/* Vencimentos da carteira simples nas proximas 13 semanas. A descontada fica
-   de fora: aquele dinheiro ja entrou, nao e previsao de entrada. */
-function chartPrev() {
-  const host = $('#ch-prev');
-  const simples = (DADOS.titulos || []).filter(t => t.carteira === 'simples');
-  if (!simples.length) {
-    host.innerHTML = '<div class="vazio">Nenhuma carteira de cobrança carregada.</div>';
-    $('#cd-prev').textContent = '';
+/* Entradas e saidas previstas, semana a semana.
+   Isto e mudanca no tempo, entao o tempo corre no eixo X. Antes era um
+   grafico de barras HORIZONTAIS - uma semana por linha, empilhadas de cima
+   para baixo. Ninguem le tempo assim: o leitor precisava traduzir "para
+   baixo" em "para a frente" a cada olhada. */
+function chartSemanas(sem) {
+  const host = $('#ch-prev'); host.innerHTML = '';
+  const temAlgo = sem.some(s => s.ent > 0 || s.sai > 0);
+  if (!temAlgo) {
+    host.innerHTML = '<div class="vazio">Nenhum lançamento nas próximas 13 semanas.</div>';
+    $('#cd-prev').textContent = ''; $('#lg-prev').innerHTML = '';
     return;
   }
-  const segunda = s => { const x = D(s); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); };
-  const ini = segunda(HOJE);
-  const sem = [];
-  for (let i = 0; i < 13; i++) {
-    const a = addD(ini, i * 7);
-    sem.push({ ini: a, fim: addD(a, 6), v: 0, n: 0 });
-  }
-  const fim = sem[12].fim;
-  let venc = 0, nVenc = 0, depois = 0, nDepois = 0;
-  simples.forEach(t => {
-    if (t.d < ini) { venc += t.v; nVenc++; return; }
-    if (t.d > fim) { depois += t.v; nDepois++; return; }
-    const i = Math.floor(Math.round((D(t.d) - D(ini)) / 864e5) / 7);
-    sem[i].v += t.v; sem[i].n++;
+  const SERIES = [
+    { k: 'ent', nome: 'Entradas', cor: '--s2' },
+    { k: 'sai', nome: 'Saídas', cor: '--s1' },
+  ];
+  const maxV = Math.max(...sem.map(s => Math.max(s.ent, s.sai)), 1);
+  const T = ticks(maxV, 4);
+  const padL = 66, padR = 16, padT = 26, padB = 46, plotH = 220;
+  const larg = Math.max(host.clientWidth || 640, 13 * 46 + padL + padR);
+  const plotW = larg - padL - padR;
+  const H = plotH + padT + padB;
+  const banda = plotW / sem.length;
+  const barW = Math.min(15, Math.max(3, (banda - 6) / 2));
+  const y = v => padT + plotH - (v / T.topo) * plotH;
+
+  const svg = el('svg', { width: larg, height: H, role: 'img',
+    'aria-label': 'Entradas e saídas previstas por semana' });
+
+  T.lista.forEach(v => {
+    svg.appendChild(el('line', { x1: padL, x2: padL + plotW, y1: y(v), y2: y(v),
+      style: 'stroke:var(--grid);stroke-width:1' }));
+    svg.appendChild(el('text', { x: padL - 10, y: y(v) + 4, 'text-anchor': 'end',
+      style: 'fill:var(--ink-muted);font-size:11px;font-variant-numeric:tabular-nums' }, axisFmt(v)));
   });
-  const noHorizonte = sem.reduce((s, x) => s + x.v, 0);
-  const base = noHorizonte + venc;
+  svg.appendChild(el('line', { x1: padL, x2: padL + plotW, y1: y(0), y2: y(0),
+    style: 'stroke:var(--axis);stroke-width:1' }));
 
-  const itens = [];
-  if (venc) itens.push({ k: 'Vencido até ' + ddmm(addD(ini, -1)), v: venc, n: nVenc, venc: 1 });
-  sem.forEach(s => itens.push({ k: ddmm(s.ini) + ' a ' + ddmm(s.fim), v: s.v, n: s.n }));
-  itens.forEach(x => x.pct = pcts(x.v, base));
+  // rotulo direto so na semana de maior saida - um numero em cada coluna vira ruido
+  const iPico = sem.reduce((a, s, i) => s.sai > sem[a].sai ? i : a, 0);
+  const passoLab = Math.max(1, Math.ceil((sem.length * 44) / plotW));
 
-  $('#cd-prev').innerHTML = '<b>' + money(noHorizonte) + '</b> vence dentro das 13 semanas' +
-    (venc ? ', e <b class="neg">' + money(venc) + '</b> já venceu antes delas' : '') +
-    (depois ? ' · ' + money(depois) + ' vence depois do horizonte' : '') + '.';
-  barras('#ch-prev', itens, it => it.venc ? '--critical' : '--s4', 'A receber por semana');
+  sem.forEach((s, i) => {
+    const cx = padL + banda * i + banda / 2;
+    SERIES.forEach((serie, j) => {
+      const v = s[serie.k];
+      if (!v) return;
+      // 2px de superficie entre as duas colunas da mesma semana
+      const x = cx - barW - 1 + j * (barW + 2);
+      const alt = (v / T.topo) * plotH, topo = y(v);
+      const r = Math.min(4, barW / 2, alt);
+      svg.appendChild(el('path', { d:
+        'M' + x + ',' + (topo + alt) + ' L' + x + ',' + (topo + r) +
+        ' Q' + x + ',' + topo + ' ' + (x + r) + ',' + topo +
+        ' L' + (x + barW - r) + ',' + topo +
+        ' Q' + (x + barW) + ',' + topo + ' ' + (x + barW) + ',' + (topo + r) +
+        ' L' + (x + barW) + ',' + (topo + alt) + ' Z',
+        style: 'fill:var(' + serie.cor + ')' }));
+    });
+
+    if (i === iPico && s.sai > 0) {
+      const txt = compact(s.sai);
+      if (largura(txt, '600 11px system-ui') < banda * 2.4) {
+        svg.appendChild(el('text', { x: cx, y: y(s.sai) - 8, 'text-anchor': 'middle',
+          style: 'fill:var(--ink);font-size:11px;font-weight:600' }, txt));
+      }
+    }
+    if (i % passoLab === 0) {
+      svg.appendChild(el('text', { x: cx, y: padT + plotH + 17, 'text-anchor': 'middle',
+        style: 'fill:var(--ink-muted);font-size:11px' }, ddmm(s.ini)));
+    }
+    if (i === 0) {
+      svg.appendChild(el('text', { x: cx, y: padT + plotH + 31, 'text-anchor': 'middle',
+        style: 'fill:var(--ink-muted);font-size:10px' }, 'esta semana'));
+    }
+
+    const hit = el('rect', { x: padL + banda * i, y: padT, width: banda, height: plotH,
+      fill: 'transparent', class: 'clicavel' });
+    hit.addEventListener('mousemove', ev => mostraTip(
+      '<div class="tt">Semana de ' + dtLongo(s.ini) + ' a ' + dtLongo(s.fim) + '</div>' +
+      '<div class="tr"><span><i class="dot" style="display:inline-block;background:var(--s2);margin-right:6px"></i>Entradas</span><b>' +
+        (s.ent ? money(s.ent) : '—') + '</b></div>' +
+      (s.tit ? '<div class="tr"><span style="padding-left:15px">da carteira</span><b>' + money(s.tit) + '</b></div>' : '') +
+      '<div class="tr"><span><i class="dot" style="display:inline-block;background:var(--s1);margin-right:6px"></i>Saídas</span><b>' +
+        (s.sai ? money(s.sai) : '—') + '</b></div>' +
+      (s.divida ? '<div class="tr"><span style="padding-left:15px">parcelas de dívida</span><b>' + money(s.divida) + '</b></div>' : '') +
+      '<div class="tf"><span>Saldo no fim</span><span>' + money(s.saldo) + '</span></div>' +
+      '<div class="tr" style="color:var(--ink-muted);font-size:11.5px">clique para abrir o detalhe</div>', ev));
+    hit.addEventListener('mouseleave', escondeTip);
+    hit.addEventListener('click', () => abrirSemana(s));
+    svg.appendChild(hit);
+  });
+
+  host.appendChild(svg);
+
+  const totEnt = sem.reduce((a, s) => a + s.ent, 0);
+  const totSai = sem.reduce((a, s) => a + s.sai, 0);
+  $('#cd-prev').innerHTML = 'Nas 13 semanas: <b>' + money(totEnt) + '</b> a entrar contra <b>' +
+    money(totSai) + '</b> a sair' +
+    (totEnt < totSai ? ' — faltam <b class="neg">' + money(totSai - totEnt) + '</b>.'
+                     : ' — sobram <b>' + money(totEnt - totSai) + '</b>.');
+  $('#lg-prev').innerHTML = SERIES.map(s =>
+    '<span><i class="dot" style="background:var(' + s.cor + ')"></i>' + s.nome + '</span>').join('');
+}
+
+/* Leva da semana clicada para o detalhe dela, com os filtros ja aplicados. */
+function abrirSemana(s) {
+  F.de = s.ini; F.ate = s.fim;
+  $('#de').value = F.de; $('#ate').value = F.ate;
+  mostraAba('pagar');
+  render();
 }
 
 /* ================================================================== abas ==
@@ -1505,10 +1609,11 @@ function chartPrev() {
 const ABAS = ['resumo', 'pagar', 'receber', 'diag'];
 let ABA = 'resumo';
 
-function mostraAba(nome) {
+function mostraAba(nome, semRolar) {
   if (ABAS.indexOf(nome) < 0) nome = 'resumo';
   const bt = $('#tab-' + nome);
   if (!bt || bt.hidden) nome = 'resumo';
+  const trocou = ABA !== nome;
   ABA = nome;
   ABAS.forEach(a => {
     const on = a === nome;
@@ -1518,13 +1623,53 @@ function mostraAba(nome) {
     b.tabIndex = on ? 0 : -1;
   });
   try { localStorage.setItem('artflex-aba', nome); } catch (e) {}
+
+  // A aba vira endereco: da para recarregar, favoritar e usar o botao voltar
+  // do navegador sem cair sempre no resumo.
+  if (location.hash.slice(1) !== nome) {
+    try { history.replaceState(null, '', '#' + nome); } catch (e) {}
+  }
+
+  // Sem isso a troca de aba mantinha a rolagem: quem estava no fim de uma
+  // tabela de 400 linhas caia no meio da aba seguinte, sem cabecalho a vista.
+  if (trocou && !semRolar && scrollY > 0) window.scrollTo(0, 0);
+
   escondeTip();
   desenhaAba();
 }
 
+/* O numero embaixo do rotulo de cada aba. Nao segue os filtros de dentro da
+   aba de proposito: e o valor de referencia dela, e mudaria debaixo do dedo
+   de quem esta filtrando. */
+function valoresDasAbas(f13) {
+  const sem = f13.sem;
+  const fim = sem[12].saldo;
+  const sai = sem.reduce((s, x) => s + x.sai, 0);
+  const p = (id, txt, neg) => {
+    const e = $('#tv-' + id);
+    if (!e) return;
+    e.textContent = txt;
+    e.style.color = neg ? 'var(--critical)' : '';
+  };
+  p('resumo', 'projeção ' + compact(fim), fim < 0);
+  p('pagar', compact(sai) + ' em 13 sem');
+  if (TIT.length) {
+    const simples = TIT.filter(x => x.carteira === 'simples');
+    const venc = simples.filter(x => x.d < HOJE);
+    p('receber', compact(simples.reduce((s, x) => s + x.v, 0)) +
+      (venc.length ? ' · ' + compact(venc.reduce((s, x) => s + x.v, 0)) + ' vencido' : ''),
+      venc.length > 0);
+  }
+  const nCards = document.querySelectorAll('#diag .card').length;
+  p('diag', nCards ? nCards + ' pontos' : '');
+}
+
 function desenhaAba() {
   if (!DADOS) return;
-  if (ABA === 'resumo') { chart13(ULT13 || fluxo13()); chartPrev(); }
+  if (ABA === 'resumo') {
+    const sem = ULT13 || fluxo13();
+    chart13(sem); chartSemanas(sem);
+  }
   else if (ABA === 'pagar') desenhaPagar(filtrar());
   else if (ABA === 'receber' && TIT.length) desenhaReceber(filtrarRec());
 }
@@ -1551,6 +1696,10 @@ document.querySelectorAll('#tbl th').forEach(th => th.addEventListener('click', 
 /* ----------------------------------------------------------- abas: eventos */
 ABAS.forEach(a => {
   $('#tab-' + a).addEventListener('click', () => mostraAba(a));
+});
+addEventListener('hashchange', () => {
+  const a = location.hash.slice(1);
+  if (ABAS.indexOf(a) >= 0 && a !== ABA) mostraAba(a);
 });
 $('.tabs').addEventListener('keydown', ev => {
   const passo = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;

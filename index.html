@@ -26,6 +26,13 @@
 
   /* Estado. O amarelo saiu daqui ao virar cor de marca: "observação" agora é um
      selo neutro, senão um aviso ficaria idêntico a um acento de interface. */
+  /* Rampa ordinal (um hue, claro->escuro) para escala ORDENADA - as faixas de
+     atraso. Nao e categorica: 31-60 dias nao e "outra categoria" que 1-30, e
+     mais do mesmo. Antes isso era um arco-iris de cinco cores de serie, o que
+     dizia ao leitor que as faixas eram coisas diferentes entre si.
+     Validada com scripts/validate_palette.js --ordinal nas duas superficies. */
+  --o1:#86b6ef; --o2:#3987e5; --o3:#256abf; --o4:#104281;
+
   --good:#0ca30c; --serious:#ec835a; --critical:#d03b3b;
   --good-text:#006300;
   --shadow:0 1px 2px rgba(11,11,11,.05), 0 6px 20px -12px rgba(11,11,11,.18);
@@ -38,6 +45,8 @@
     --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
     --s1:#ba8905; --s2:#3987e5; --s3:#d95926; --s4:#199e70; --s5:#9085e9; --s6:#d55181;
     --s7:#008300; --s8:#00707d;
+        /* No escuro a rampa inverte: mais atraso = mais claro. */
+    --o1:#184f95; --o2:#256abf; --o3:#3987e5; --o4:#86b6ef;
     --good-text:#0ca30c;
     --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px -12px rgba(0,0,0,.7);
   }
@@ -49,6 +58,8 @@
   --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
   --s1:#ba8905; --s2:#3987e5; --s3:#d95926; --s4:#199e70; --s5:#9085e9; --s6:#d55181;
   --s7:#008300; --s8:#00707d;
+    /* No escuro a rampa inverte: mais atraso = mais claro. */
+  --o1:#184f95; --o2:#256abf; --o3:#3987e5; --o4:#86b6ef;
   --good-text:#0ca30c;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 20px -12px rgba(0,0,0,.7);
 }
@@ -210,17 +221,38 @@ svg{display:block}
 .item .r.pend{color:var(--serious);font-size:12px}
 
 /* ---------------------------------------------------------------- abas */
+/* Fica grudada no topo: as tabelas sao longas e sem isso e preciso rolar de
+   volta ate o inicio so para trocar de aba. */
 .tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--border);
-  margin:0 0 26px}
-.tab{appearance:none;border:none;background:none;font:inherit;font-size:14px;font-weight:500;
-  color:var(--ink-2);padding:12px 16px;cursor:pointer;border-radius:9px 9px 0 0;
+  margin:0 0 26px;position:sticky;top:0;z-index:20;background:var(--plane);padding-top:8px}
+.tab{appearance:none;border:none;background:none;font:inherit;font-weight:500;
+  color:var(--ink-2);padding:9px 15px 10px;cursor:pointer;border-radius:9px 9px 0 0;
   border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;
-  display:inline-flex;align-items:center;gap:8px}
+  display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left}
 .tab:hover{color:var(--ink);background:var(--surface-2)}
-.tab[aria-selected="true"]{color:var(--ink);font-weight:600;border-bottom-color:var(--brand)}
-.tab .cnt{font-size:11.5px;color:var(--ink-muted);font-variant-numeric:tabular-nums}
-.tab[aria-selected="true"] .cnt{color:var(--ink-2)}
-@media(max-width:640px){.tab{padding:11px 11px;font-size:13px}}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--brand)}
+.tab .tl{font-size:14px}
+.tab[aria-selected="true"] .tl{font-weight:600}
+/* O numero embaixo do rotulo: e por ele que se escolhe a aba, nao pelo nome. */
+.tab .tv{font-size:11.5px;color:var(--ink-muted);font-variant-numeric:tabular-nums;
+  letter-spacing:.01em}
+.tab[aria-selected="true"] .tv{color:var(--ink-2)}
+@media(max-width:640px){
+  /* Em tela estreita as quatro abas quebravam em duas linhas e a barra fixa
+     passava a ocupar 120px - 15% da altura util. Uma linha so, rolando na
+     horizontal, mantem a barra sempre a mao sem tomar a tela. */
+  .tabs{gap:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{padding:8px 12px 9px;flex:none}
+  .tab .tl{font-size:12.5px}
+  .tab .tv{font-size:11px}
+}
+
+/* Barra clicavel: leva o leitor da semana para o detalhe daquela semana. */
+.clicavel{cursor:pointer}
+.dica{font-size:12px;color:var(--ink-muted);margin-top:10px;display:flex;
+  align-items:center;gap:7px}
+.dica::before{content:"";width:14px;height:2px;background:var(--axis);flex:none;border-radius:2px}
 
 /* Selo de situação do título. */
 .tag{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--border);
@@ -333,13 +365,17 @@ footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
 
   <nav class="tabs" role="tablist" aria-label="Se&ccedil;&otilde;es do painel">
     <button class="tab" role="tab" id="tab-resumo" aria-controls="pane-resumo"
-            aria-selected="true">Resumo de caixa</button>
+            aria-selected="true"><span class="tl">Resumo de caixa</span>
+      <span class="tv" id="tv-resumo"></span></button>
     <button class="tab" role="tab" id="tab-pagar" aria-controls="pane-pagar"
-            aria-selected="false" tabindex="-1">Contas a pagar<span class="cnt" id="cnt-pagar"></span></button>
+            aria-selected="false" tabindex="-1"><span class="tl">Contas a pagar</span>
+      <span class="tv" id="tv-pagar"></span></button>
     <button class="tab" role="tab" id="tab-receber" aria-controls="pane-receber"
-            aria-selected="false" tabindex="-1">Contas a receber<span class="cnt" id="cnt-receber"></span></button>
+            aria-selected="false" tabindex="-1"><span class="tl">Contas a receber</span>
+      <span class="tv" id="tv-receber"></span></button>
     <button class="tab" role="tab" id="tab-diag" aria-controls="pane-diag"
-            aria-selected="false" tabindex="-1">Diagn&oacute;stico financeiro</button>
+            aria-selected="false" tabindex="-1"><span class="tl">Diagn&oacute;stico financeiro</span>
+      <span class="tv" id="tv-diag"></span></button>
   </nav>
 
   <!-- ================================================= RESUMO DE CAIXA -->
@@ -381,13 +417,16 @@ footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
     </section>
 
     <section class="sec">
-      <h2>Previs&atilde;o de recebimentos</h2>
-      <div class="desc">Vencimentos da carteira simples, semana a semana. A carteira
-        descontada fica de fora &mdash; aquele dinheiro j&aacute; entrou.</div>
+      <h2>Entra e sai, semana a semana</h2>
+      <div class="desc">O que move o caixa em cada uma das 13 semanas. As entradas
+        s&atilde;o os vencimentos da carteira simples &mdash; a descontada fica de fora,
+        aquele dinheiro j&aacute; entrou.</div>
       <div class="chart-card">
-        <h3>A receber por semana</h3>
+        <h3>Entradas e sa&iacute;das previstas</h3>
         <div class="cd" id="cd-prev"></div>
         <div class="plot-scroll"><div id="ch-prev"></div></div>
+        <div class="legend" id="lg-prev"></div>
+        <div class="dica">Clique numa semana para abrir o detalhe dela.</div>
       </div>
     </section>
   </div>
@@ -603,7 +642,7 @@ footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--border);
 </div>
 
 <div id="tip"></div>
-<script src="dados.js?v=9b2e01cc"></script>
-<script src="app.js?v=9b2e01cc"></script>
+<script src="dados.js?v=75a5476f"></script>
+<script src="app.js?v=75a5476f"></script>
 </body>
 </html>
