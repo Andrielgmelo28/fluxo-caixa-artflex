@@ -83,13 +83,13 @@ def _chave(s):
 def _chave_dura(s):
     """Chave que sobrevive ao acento perdido na exportacao do banco.
 
-    O Santander exporta trocando a letra acentuada por espaco: "SEBASTIAO"
-    chega como "SEBASTI O", "GONCALVES" como "GON ALVES", "MOVEIS" como
-    "M VEIS". Tirar o acento nao resolve, porque a letra nao virou outra -
-    ela sumiu.
+    O Santander exporta trocando a letra acentuada por espaco: "MOVEIS" (com
+    acento no O) chega como "M VEIS", "CONSTRUCAO" como "CONSTRU AO",
+    "COLCHOES" como "COLCH ES". Tirar o acento nao resolve, porque a letra
+    nao virou outra - ela sumiu.
 
     Entao esta chave APAGA a letra acentuada dos dois lados e joga fora todo
-    separador. "SEBASTIAO" (com til) e "SEBASTI O" viram os dois SEBASTIO.
+    separador. "MOVEIS" (com acento) e "M VEIS" viram os dois MVEIS.
 
     E lossy de proposito, entao so serve de segunda tentativa, e so quando a
     chave leva a um unico CNPJ. Chave ambigua e descartada.
@@ -325,6 +325,37 @@ AMBIGUO = object()          # sentinela: nome que leva a mais de uma raiz
 _PREFIXO_MIN = 12
 
 
+def ler_apelidos():
+    """Nomes que o Andriel ja confirmou a mao -> documento.
+
+    O combinado e que ele responde uma vez e nunca mais: quando o nome de uma
+    fonte nao casa com o cadastro e a duvida vira pergunta, a resposta vira
+    linha em apelidos.csv. Por isso este e o PRIMEIRO caminho tentado - se uma
+    pessoa disse quem e, nao ha o que deduzir.
+
+    Serve tambem para o cliente que nao esta no ERP: basta informar o
+    documento a mao.
+    """
+    caminho = cfg("apelidos.csv")
+    if not os.path.exists(caminho):
+        return {}, []
+    apelidos, avisos = {}, []
+    with open(caminho, encoding="utf-8-sig", newline="") as f:
+        for linha, r in enumerate(csv.DictReader(f, delimiter=";"), 2):
+            nome = (r.get("nome_na_fonte") or "").strip()
+            doc = re.sub(r"[^0-9]", "", r.get("documento") or "")
+            if not nome:
+                continue
+            if len(doc) not in (11, 14):
+                avisos.append("apelidos.csv linha %d: documento invalido para "
+                              "%r - ignorado" % (linha, nome))
+                continue
+            apelidos[_chave(nome)] = doc
+    if apelidos:
+        avisos.append("apelidos: %d nomes confirmados a mao" % len(apelidos))
+    return apelidos, avisos
+
+
 def ler_cadastro():
     """Indexa razao social e nome fantasia -> documento.
 
@@ -333,8 +364,8 @@ def ler_cadastro():
 
     A ambiguidade e julgada pela RAIZ do CNPJ, nao pelo documento inteiro.
     Matriz e filial sao cadastros diferentes com o mesmo nome - "GINALDO DA
-    NOBREGA GONCALVES" aparece tres vezes, uma por filial. Para o de-para isso
-    nao e ambiguidade nenhuma: os tres sao o mesmo risco de credito. So quando
+    razao social se repete uma vez por filial. Para o de-para isso nao e
+    ambiguidade nenhuma: sao o mesmo risco de credito. So quando
     as raizes divergem e que a chave e jogada fora, e ai vai fora dos dois
     indices: se o cadastro nao sabe dizer quem e, o build nao pode fingir que
     sabe.
@@ -502,7 +533,19 @@ def ler_recebiveis(pasta):
     for t in titulos:
         t["fonte_raiz"] = "arquivo" if t["raiz"] else ""
 
-    # 1. Outro titulo, de qualquer carteira, com o mesmo nome e com CNPJ.
+    # 1. Apelido que o Andriel ja confirmou. Vem antes de qualquer deducao.
+    apelidos, ap_avisos = ler_apelidos()
+    avisos.extend(ap_avisos)
+    for t in titulos:
+        if t["raiz"]:
+            continue
+        doc = apelidos.get(_chave(t["sacado"]))
+        if doc:
+            t["cnpj"] = doc
+            t["raiz"] = _cnpj_raiz(doc)
+            t["fonte_raiz"] = "apelido confirmado"
+
+    # 2. Outro titulo, de qualquer carteira, com o mesmo nome e com CNPJ.
     por_nome = {}
     for t in titulos:
         if t["raiz"]:
@@ -513,7 +556,7 @@ def ler_recebiveis(pasta):
             if r:
                 t["raiz"], t["fonte_raiz"] = r, "outro titulo"
 
-    # 2 e 3. O cadastro do ERP - primeiro pelo nome exato, depois pela chave
+    # 3 e 4. O cadastro do ERP - primeiro pelo nome exato, depois pela chave
     # que tolera o acento que o Santander comeu.
     cad_exato, cad_duro, cad_lista, cad_avisos = ler_cadastro()
     avisos.extend(cad_avisos)
@@ -531,7 +574,7 @@ def ler_recebiveis(pasta):
             if doc:
                 t["cnpj"] = doc
 
-    # 4. Nome truncado pelo banco. O Santander e a Credvale cortam em ~40
+    # 5. Nome truncado pelo banco. O Santander e a Credvale cortam em ~40
     # caracteres, entao "NOGUEIRA COMERCIO VAREJISTA DE MOVEIS LT" nunca vai
     # bater com "...LTDA" por igualdade.
     #

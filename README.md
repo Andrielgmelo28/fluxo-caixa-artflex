@@ -38,7 +38,7 @@ Tema claro/escuro, e funciona no celular.
 | `build.py` | Lê as fontes, classifica, projeta e cifra |
 | `dados.js` | Saída cifrada — **gerada, não editar à mão** |
 | `logo.png` / `logo-dark.png` | Logomarca para fundo claro e escuro |
-| `*-modelo.csv` | Modelos de entrada, com dados fictícios |
+| `*-modelo.csv` / `*-modelo.json` | Modelos de entrada, com dados fictícios |
 
 Sem dependências em tempo de execução: nenhuma CDN, nenhuma requisição externa.
 
@@ -119,6 +119,46 @@ dinheiro duas vezes.
 
 O painel agrupa a concentração de clientes pela **raiz do CNPJ**: matriz e filial do
 mesmo grupo são o mesmo risco de crédito.
+
+#### Quando o título vem sem CNPJ
+
+Nem toda fonte traz o documento, e as que trazem o nome escrevem cada uma de um jeito.
+O build tenta cinco caminhos, nesta ordem. **Todos exigem igualdade exata depois de
+normalizar** — nenhum é por semelhança:
+
+| # | Caminho |
+|---|---|
+| 1 | **Apelido confirmado** — alguém já respondeu quem é, em `apelidos.csv` |
+| 2 | Outro título, mesmo nome, que veio com CNPJ |
+| 3 | Cadastro do ERP, nome idêntico |
+| 4 | Cadastro do ERP, tolerando **acento perdido** na exportação |
+| 5 | Cadastro do ERP, tolerando **nome truncado** pelo banco |
+
+O caminho 4 existe porque alguns bancos exportam trocando a letra acentuada por
+espaço: `MÓVEIS` chega como `M VEIS`, `COLCHÕES` como `COLCH ES`. Tirar o acento não
+resolve — a letra sumiu, não virou outra. A chave apaga a letra acentuada dos dois
+lados, então os dois viram a mesma coisa.
+
+O caminho 5 existe porque o nome vem cortado em ~40 caracteres. Exige que o nome da
+fonte seja o **começo literal** do nome do cadastro, com no mínimo 12 caracteres, e
+que todos os cadastros com aquele prefixo tenham a **mesma raiz**.
+
+Casamento por semelhança foi testado e **reprovado**: apontou pares com 100% de
+confiança que eram empresas diferentes. Errar o casamento não gera erro nenhum — só
+deixa o número errado para sempre. Ficar sem identificar é melhor.
+
+### `apelidos.csv` — a resposta que não se pergunta duas vezes
+
+```
+nome_na_fonte;documento;nome_no_cadastro;confirmado_em;obs
+FULANO D SOUZA MOVEIS;11222333000181;FULANO DE SOUZA MOVEIS;2026-01-15;banco abrevia
+```
+
+Quando um nome não casa com o cadastro e a dúvida vira pergunta, a resposta vira linha
+aqui — e o build nunca mais pergunta. É o **primeiro** caminho tentado: se uma pessoa
+disse quem é, não há o que deduzir.
+
+Serve também para o cliente que não está no ERP: basta informar o documento à mão.
 
 ### `dividas.csv` — empréstimos e antecipações
 
