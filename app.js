@@ -273,13 +273,27 @@ function alertas(k, sel, f13) {
     box.appendChild(d);
   };
 
-  if (f13 && !f13.temRec) {
+  // Recorte que tem saída e nenhuma entrada não é caixa ruim: é dado faltando.
+  // O varejo recebe cartão em D+1 com antecipação automática, então não existe
+  // recebível futuro para importar — a entrada dele tem que ser projetada da
+  // série de vendas, e enquanto isso não existe o painel mostra só o lado de lá.
+  const semEntrada = f13 && f13.sem &&
+    f13.sem.reduce((s, x) => s + x.sai, 0) > 0 &&
+    f13.sem.reduce((s, x) => s + x.ent, 0) === 0;
+
+  if (REC.length === 0) {
     add('serious', '!', 'Falta o lado das entradas',
-      'O fluxo de 13 semanas está rodando só com saídas porque não há <code>recebimentos.csv</code> ' +
-      'carregado. Exporte a posição de cobrança dos bancos, salve como <code>recebimentos.csv</code> ' +
-      'na pasta do projeto e rode o <code>build.py</code> — o modelo de colunas está em ' +
-      '<code>recebimentos-modelo.csv</code>. <b>Enquanto isso, trate o saldo projetado como ' +
-      '"quanto falta entrar", não como previsão de caixa.</b>');
+      'O fluxo de 13 semanas está rodando só com saídas porque nenhuma carteira de cobrança ' +
+      'foi carregada. Exporte a posição de títulos dos bancos e solte os arquivos na pasta ' +
+      '<code>recebiveis/</code>. <b>Enquanto isso, trate o saldo projetado como "quanto falta ' +
+      'entrar", não como previsão de caixa.</b>');
+  } else if (semEntrada) {
+    add('serious', '!', 'Este recorte não tem entrada nenhuma — e isso não significa que não entra dinheiro',
+      'As empresas filtradas têm pagamentos mas nenhum recebimento carregado. <b>O varejo ' +
+      'recebe cartão em D+1, com antecipação automática</b>: não existe recebível futuro para ' +
+      'importar de lugar nenhum, então a entrada das lojas ainda não está no painel. ' +
+      'Ela precisa ser projetada da série histórica de vendas do ERP. ' +
+      '<b>Não leia este saldo como o caixa real dessas empresas.</b>');
   } else if (f13 && f13.neg) {
     add('critical', '!', 'Caixa fura na semana de ' + dtLongo(f13.neg.ini),
       'Com o que está carregado, o saldo projetado chega a <b class="neg">' + money(f13.neg.saldo) +
