@@ -746,7 +746,7 @@ def extrair(caminho):
     ws = wb["SEMANAL"]
     linhas = list(ws.iter_rows(min_row=1, max_row=400, values_only=True))
 
-    pagamentos, subtotais, excluidos = [], [], []
+    pagamentos, subtotais, excluidos, sem_data = [], [], [], []
     for i, r in enumerate(linhas, start=1):
         if i < 4:
             continue
@@ -759,6 +759,16 @@ def extrair(caminho):
             continue
         data = dt.date().isoformat() if isinstance(dt, (datetime.datetime, datetime.date)) else None
         if not data:
+            # Linha com valor mas SEM data. Antes sumia calada, e em 25/08/2026
+            # um bloco desses valia R$ 27.706,88 - seis pagamentos nominais que
+            # o subtotal da planilha contava e o painel nao. Sem data nao da
+            # para por no calendario, mas descartar e pior: fica listada a
+            # parte, visivel, e fora de toda conta que dependa de data.
+            if num(val) is not None:
+                nome_, grupo_ = entidade(txt(emp))
+                d_ = txt(desc) or "(sem descricao)"
+                sem_data.append({"e": nome_, "g": grupo_, "n": d_,
+                                 "v": num(val), "c": categoria(d_), "l": i})
             continue
         d = txt(desc) or "(sem descricao)"
         nome, grupo = entidade(txt(emp))
@@ -856,6 +866,7 @@ def extrair(caminho):
         "excluidos": excluidos,
         "subtotais_semanais": subtotais,
         "saldos": saldos,
+        "sem_data": sem_data,
         "fixos": fixos,
         "resumo": resumo,
         "hoje": datetime.date.today().isoformat(),
@@ -922,6 +933,8 @@ def main():
 
     excl = sum(p["v"] or 0 for p in dados["excluidos"])
     subtotais = sum(dados["subtotais_semanais"])
+    semdt = dados["sem_data"]
+    semdt_tot = sum(p["v"] or 0 for p in semdt)
 
     rec = dados["recebimentos"]
     print(f"OK  {len(dados['pagamentos'])} pagamentos "
@@ -964,11 +977,24 @@ def main():
         print(f"    retirados a pedido     {brl(excl)}  ({len(dados['excluidos'])} lancamentos)")
         for p in dados["excluidos"]:
             print(f"      - {p['d']}  {p['e']:<12} {p['n']:<18} {brl(p['v'] or 0)}")
-    # A conferencia so fecha somando de volta o que foi retirado: e o que prova
-    # que a extracao nao perdeu nenhuma outra linha pelo caminho.
-    print(f"    conferencia            {brl(total + excl)} vs "
+    if semdt:
+        print(f"    SEM DATA               {brl(semdt_tot)}  ({len(semdt)} lancamentos) "
+              f"- estao na planilha e no subtotal dela, mas sem data nao entram "
+              f"no calendario. Preencha a data na coluna G:")
+        for p in semdt:
+            print(f"      - linha {p['l']:<4} {p['e']:<12} {p['n']:<22} {brl(p['v'] or 0)}")
+
+    # A conferencia so fecha somando de volta o que foi retirado e o que ficou
+    # sem data: e o que prova que a extracao nao perdeu nenhuma outra linha.
+    lido = total + excl + semdt_tot
+    dif = round(lido - subtotais, 2)
+    print(f"    conferencia            {brl(lido)} vs "
           f"{brl(subtotais)} de subtotais da planilha"
-          f"  {'OK' if abs(total + excl - subtotais) < 0.01 else '<<< NAO BATE'}")
+          f"  {'OK' if abs(dif) < 0.01 else '<<< NAO BATE por ' + brl(dif)}")
+    if abs(dif) >= 0.01:
+        print("      A diferenca esta na PLANILHA, nao na leitura: alguma formula")
+        print("      de subtotal nao cobre todas as linhas do bloco dela. Confira")
+        print("      os intervalos SUM() da coluna F.")
     print(f"    -> {destino}")
     print(f"    index.html carimbado com ?v={versao}"
           f"  (commite index.html junto com dados.js)")

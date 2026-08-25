@@ -340,6 +340,20 @@ function alertas(k, sel, f13) {
       '</b>. Ficam listados sem valor de propósito, como lembrete — e por isso o total acima ' +
       'está abaixo do desembolso real do período.');
   }
+
+  // Lancamento com valor e sem data. A planilha soma no subtotal dela, mas o
+  // painel nao tem onde por no calendario - e some-lo em qualquer total por
+  // data seria inventar uma data. Fica aqui, visivel, ate ganhar a dele.
+  const SD = (DADOS.sem_data || []).filter(daEntidade);
+  if (SD.length) {
+    const t = SD.reduce((s, p) => s + (p.v || 0), 0);
+    add('warning', '?', money(t) + ' sem data de vencimento',
+      SD.length + ' lançamentos têm valor e empresa na planilha, mas a coluna DATA está ' +
+      'vazia: ' + SD.map(p => '<b>' + esc(p.n) + '</b> ' + money(p.v || 0)).join(' · ') + '. ' +
+      'Sem data eles não entram no calendário nem no fluxo de 13 semanas — <b>o desembolso ' +
+      'real é maior que o mostrado por esse valor</b>. Preencha a data na coluna G da aba ' +
+      'SEMANAL e eles entram sozinhos no próximo build.');
+  }
 }
 
 /* ------------------------------------------------------- fluxo 13 semanas
