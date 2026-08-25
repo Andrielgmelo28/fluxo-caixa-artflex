@@ -759,11 +759,14 @@ def extrair(caminho):
             continue
         data = dt.date().isoformat() if isinstance(dt, (datetime.datetime, datetime.date)) else None
         if not data:
-            # Linha com valor mas SEM data. Antes sumia calada, e em 25/08/2026
-            # um bloco desses valia R$ 27.706,88 - seis pagamentos nominais que
-            # o subtotal da planilha contava e o painel nao. Sem data nao da
-            # para por no calendario, mas descartar e pior: fica listada a
-            # parte, visivel, e fora de toda conta que dependa de data.
+            # Linha com valor mas SEM data. Antes sumia calada, e ja apareceu
+            # um bloco inteiro assim: pagamentos nominais que o subtotal da
+            # planilha contava e o painel nao, entao o desembolso exibido
+            # ficava menor que o real sem ninguem ter como perceber.
+            #
+            # Sem data nao da para por no calendario, e chutar uma seria pior
+            # que mostrar a falta. Fica listada a parte, visivel, e fora de
+            # toda conta que dependa de data.
             if num(val) is not None:
                 nome_, grupo_ = entidade(txt(emp))
                 d_ = txt(desc) or "(sem descricao)"
