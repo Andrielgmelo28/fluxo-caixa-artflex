@@ -46,8 +46,13 @@ Sem dependências em tempo de execução: nenhuma CDN, nenhuma requisição exte
 
 ```bash
 pip install openpyxl cryptography
-python build.py "caminho/para/planilha.xlsx" SUA_SENHA
+python build.py "caminho/para/planilha.xlsx"
 ```
+
+O build pede a senha no terminal, sem eco, e pede para digitá-la de novo. A senha
+precisa ter **pelo menos 16 caracteres**; uma frase de 4 ou mais palavras é o
+caminho mais fácil. Ela **não é aceita como argumento**, porque argumento fica
+gravado no histórico do shell e aparece na lista de processos.
 
 O build regrava `dados.js` e carimba o `index.html` com um `?v=<hash>` novo — é o
 que faz o navegador de quem já visitou pegar a versão nova em vez do cache. Por isso
@@ -65,7 +70,8 @@ subtotais da planilha. Se não bater, a estrutura mudou e a extração precisa d
 
 ### Trocando a senha
 
-Rode o `build.py` com a senha nova e faça push de `dados.js` e `index.html`.
+Rode o `build.py`, digite a senha nova quando ele pedir e faça push de `dados.js` e
+`index.html`.
 
 ## Arquivos de entrada
 

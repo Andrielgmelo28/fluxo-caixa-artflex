@@ -4,18 +4,24 @@ Gera o arquivo dados.js (criptografado) a partir da planilha
 "Fluxo de Caixa Fabrica.xlsx".
 
 Uso:
-    python build.py "C:\caminho\Fluxo de Caixa Fabrica.xlsx" MINHA_SENHA
+    python build.py "C:\caminho\Fluxo de Caixa Fabrica.xlsx"
+
+A senha e pedida no terminal (sem eco), duas vezes, e precisa ter pelo
+menos 16 caracteres. Ela nao e aceita como argumento: argumento fica no
+historico do shell e na lista de processos.
 
 O conteudo e cifrado com AES-256-GCM. A chave vem da senha via
 PBKDF2-HMAC-SHA256 (310.000 iteracoes). Sem a senha o dados.js e
 apenas ruido - mesmo com o repositorio publico.
 """
 import sys, os, re, csv, json, base64, datetime, hashlib, unicodedata
+import getpass
 
 import openpyxl
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 ITER = 310_000
+SENHA_MIN = 16
 
 # ------------------------------------------------------------------ config
 # Arquivos com dado real (grupo.json, notas.json, dividas.csv, recebimentos.csv)
@@ -916,11 +922,25 @@ def carimbar(pasta):
     return versao
 
 
+def ler_senha() -> str:
+    senha = getpass.getpass("Senha (min. %d caracteres): " % SENHA_MIN)
+    if len(senha) < SENHA_MIN:
+        sys.exit("Senha com %d caracteres; o minimo e %d. Nada foi gerado."
+                 % (len(senha), SENHA_MIN))
+    if getpass.getpass("Repita a senha: ") != senha:
+        sys.exit("As senhas nao conferem. Nada foi gerado.")
+    return senha
+
+
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) != 2:
+        if len(sys.argv) > 2:
+            print("A senha nao e mais aceita como argumento: ela ficaria no "
+                  "historico do shell. Rode so com o caminho da planilha.\n")
         print(__doc__)
         sys.exit(1)
-    caminho, senha = sys.argv[1], sys.argv[2]
+    caminho = sys.argv[1]
+    senha = ler_senha()
     dados = extrair(caminho)
 
     com_valor = [p for p in dados["pagamentos"] if p["v"]]
