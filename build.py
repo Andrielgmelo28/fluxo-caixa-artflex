@@ -705,6 +705,8 @@ def ler_dividas(pasta):
             "liquido": _valor(ln.get("liquido")),
             "recompra": _valor(ln.get("recompra")),
             "taxa_capa": _valor(ln.get("taxa_capa")),
+            # opcional: data da 1a parcela (fim da carencia); antes dela nao ha parcela
+            "inicio": _data(ln.get("inicio")),
         })
     return dividas, avisos
 
@@ -719,6 +721,7 @@ def projetar_parcelas(dividas, ate_meses=6):
             continue          # quem paga e o sacado; nao ha parcela nossa
         saldo = d["saldo"]
         fim = datetime.date.fromisoformat(d["fim"]) if d["fim"] else None
+        inicio = datetime.date.fromisoformat(d["inicio"]) if d.get("inicio") else None
         ref = hoje.replace(day=1)
         for _ in range(ate_meses + 1):
             ano, mes = ref.year, ref.month
@@ -726,7 +729,7 @@ def projetar_parcelas(dividas, ate_meses=6):
                       31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mes - 1]
             venc = datetime.date(ano, mes, min(d["dia"], ultimo))
             ref = datetime.date(ano + (mes == 12), (mes % 12) + 1, 1)
-            if venc < hoje or (fim and venc > fim) or saldo <= 0.01:
+            if venc < hoje or (fim and venc > fim) or (inicio and venc < inicio) or saldo <= 0.01:
                 continue
             juros = round(saldo * d["taxa"] / 100, 2)
             amort = 0.0 if d["tipo"] == "rotativo" else min(d["cap"], saldo)
